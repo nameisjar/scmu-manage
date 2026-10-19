@@ -1,0 +1,106 @@
+const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { PrismaClient } = require('../backend/node_modules/@prisma/client');
+const databaseUrl = process.env.SCMU_DEMO_DATABASE_URL || 'postgresql://scmu_demo@127.0.0.1:55432/scmu_demo';
+const target = new URL(databaseUrl);
+assert.ok(['127.0.0.1', 'localhost'].includes(target.hostname) && target.pathname === '/scmu_demo', 'Only the local demo database is supported');
+const origin = process.env.SCMU_API_URL || 'http://127.0.0.1:5000';
+assert.ok(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'Only the local demo API is supported');
+const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+const marker = randomUUID(); const created = { jobs: [], quotations: [] }; let admin;
+async function request(route, token, body, method = body ? 'POST' : 'GET', expected) {
+  const response = await fetch(`${origin}/api${route}`, { method, headers: { ...(token && { Authorization: `Bearer ${token}` }), ...(!(body instanceof FormData) && { 'Content-Type': 'application/json' }) }, body: body && (body instanceof FormData ? body : JSON.stringify(body)), signal: AbortSignal.timeout(20000) });
+  const data = await response.json();
+  assert.ok(expected ? response.status === expected : response.ok, `${method} ${route}: ${response.status} ${JSON.stringify(data)}`);
+  return data;
+}
+const login = (email, password) => request('/auth/login', null, { email, password });
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6GWQAAAAASUVORK5CYII=', 'base64');
+function upload(bytes = png, field = 'file', mime = 'image/png') { const data = new FormData(); data.append(field, new Blob([bytes], { type: mime }), 'test.png'); return data; }
+async function main() {
+  admin = (await login('admin@scmu.local', 'Admin@1234')).token;
+  const operator = (await login('operasional@scmu.local', 'Ops@1234')).token;
+  for (const endpoint of ['/jobs', '/jobs/finance', '/sales-quotations']) await request(endpoint, admin);
+  await request('/portal/jobs', null, null, 'GET', 404);
+  await request('/jobs', admin, {}, 'POST', 422);
+  const vendor = (await request('/companies?limit=200', admin)).data.find(row => row.type === 'TRANSPORTER');
+  const cargo = { title: marker, originCity: 'Surabaya', destCity: 'Merauke', cargoDescription: 'Integration cargo', packages: 3, weightKg: '125.500', volumeCbm: '1.2500', currency: 'IDR', validUntil: new Date(Date.now() + 86400000).toISOString(), items: [{ description: 'Door-to-door', quantity: 3, unit: 'PACKAGE', sellRate: '33.35', buyRate: '20.00' }] };
+  const quotation = await request('/sales-quotations', admin, cargo); created.quotations.push(quotation.id);
+  assert.equal(quotation.totals.revenue, '100.05');
+  await request(`/sales-quotations/${quotation.id}/job`, admin, {}, 'POST', 409);
+  await request(`/sales-quotations/${quotation.id}`, admin, { ...cargo, terms: 'Updated terms' }, 'PUT');
+  await request(`/sales-quotations/${quotation.id}/status`, admin, { status: 'SENT' });
+  await request(`/sales-quotations/${quotation.id}/status`, operator, { status: 'ACCEPTED' });
+  const job = await request(`/sales-quotations/${quotation.id}/job`, admin, {}); created.jobs.push(job.id);
+  assert.equal((await request(`/sales-quotations/${quotation.id}/job`, admin, {})).id, job.id);
+  const revision = await request(`/sales-quotations/${quotation.id}/revise`, admin, {}); created.quotations.push(revision.id); assert.equal(revision.revision, 2);
+  const base = `/jobs/${job.id}`;
+  await request(`${base}/close`, admin, {}, 'POST', 409);
+  await request(base, operator, { recipientName: 'Test recipient', deliveryAddress: 'Test address' }, 'PUT');
+  const leg = await request(`${base}/shipments`, operator, { mode: 'SEA', carrierId: vendor.id, originCity: 'Surabaya', destCity: 'Merauke', loadingDate: new Date().toISOString(), expectedDelivery: new Date(Date.now() + 86400000).toISOString(), containerNumber: `TEST-${marker}`, freeUntil: new Date(Date.now() - 86400000).toISOString() });
+  await request(`/shipments/${leg.id}/tracking`, operator, { eventType: 'DEPARTED', location: 'Surabaya' });
+  assert.equal((await request(base, admin)).status, 'IN_PROGRESS');
+  await request(`/shipments/${leg.id}/tracking`, operator, { eventType: 'DELIVERED', location: 'Merauke' });
+  assert.equal((await request(base, admin)).status, 'DELIVERED');
+  let current = await request(base, admin); const cost = current.charges.find(row => row.kind === 'COST');
+  await request(`${base}/charges/${cost.id}`, operator, { description: cost.description, estimatedAmount: cost.estimatedAmount, vendorId: vendor.id }, 'PUT');
+  await request(`${base}/charges/${cost.id}/review`, admin, { status: 'APPROVED', actualAmount: '60.00' });
+  await request(`${base}/charges/${cost.id}`, operator, { description: 'Tamper', estimatedAmount: 1 }, 'PUT', 409);
+  const invoice = await request(`${base}/invoices`, admin, { taxAmount: '0.95' }); assert.equal(invoice.totalAmount, 101);
+  await request(`${base}/invoices`, admin, {}, 'POST', 409);
+  await request(`/invoices/${invoice.id}`, admin, { status: 'PAID' }, 'PUT', 409);
+  await request(`${base}/payments`, admin, { direction: 'RECEIVABLE', invoiceId: invoice.id, amount: '40.00', reference: 'PART-1' });
+  await request(`${base}/payments`, admin, { direction: 'RECEIVABLE', invoiceId: invoice.id, amount: 1, reference: 'PART-1' }, 'POST', 409);
+  assert.equal((await request(base, admin)).invoices[0].balance, '61.00');
+  const concurrent = await Promise.all([1, 2].map(i => fetch(`${origin}/api${base}/payments`, { method: 'POST', headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ direction: 'RECEIVABLE', invoiceId: invoice.id, amount: 61, reference: `RACE-${i}` }) })));
+  assert.deepEqual(concurrent.map(row => row.status).sort(), [201, 409], 'Concurrent payments must not overpay');
+  await request(`${base}/payments`, admin, { direction: 'PAYABLE', chargeId: cost.id, amount: 20, reference: 'VENDOR-DP', isAdvance: true });
+  await request(`${base}/payments`, admin, { direction: 'PAYABLE', chargeId: cost.id, amount: 41, reference: 'TOO-MUCH' }, 'POST', 409);
+  await request(`${base}/payments`, admin, { direction: 'PAYABLE', chargeId: cost.id, amount: 40, reference: 'VENDOR-FINAL' });
+  const movement = { kind: 'WAREHOUSE', status: 'OUT', quantity: 3, reference: 'WH-OUT', location: 'Test dock' };
+  await request(`${base}/operations`, operator, movement, 'POST', 409);
+  await request(`${base}/operations`, operator, { ...movement, status: 'IN', reference: 'WH-IN' });
+  await request(`${base}/operations`, operator, movement);
+  const claim = await request(`${base}/operations`, operator, { kind: 'CLAIM', status: 'OPEN', reference: 'CLAIM-1' });
+  await request(`${base}/operations/${claim.id}`, admin, { status: 'SETTLED' }, 'PUT');
+  await request(`/shipments/${leg.id}/pod`, operator, upload(png, 'podImage'));
+  current = await request(base, admin);
+  const privateDoc = await request(`${base}/documents`, operator, { title: 'Private cost attachment', type: 'OTHER', customerVisible: false });
+  const bad = current.documents.find(row => row.status === 'PENDING');
+  await request(`${base}/documents/${bad.id}/upload`, operator, upload(Buffer.from('not a png')), 'POST', 415);
+  for (const document of current.documents) {
+    if (document.status === 'PENDING') await request(`${base}/documents/${document.id}/upload`, operator, upload());
+    await request(`${base}/documents/${document.id}/verify`, admin, {});
+  }
+  const verified = (await request(base, admin)).documents.find(row => row.status === 'VERIFIED');
+  const response = await fetch(`${origin}/api${base}/documents/${verified.id}/file`, { headers: { Authorization: `Bearer ${admin}` } });
+  assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), png);
+  await request(`${base}/close`, admin, {}, 'POST', 409); // Container still unreturned.
+  await request(`${base}/shipments/${leg.id}/empty-return`, operator, {});
+  current = await request(base, admin); assert.equal(current.financials.receivable, '0.00'); assert.equal(current.financials.payable, '0.00'); assert.equal(current.financials.grossProfit, '40.05');
+  assert.equal((await request(`${base}/close`, admin, {})).status, 'CLOSED');
+  await request(`${base}/charges`, operator, { kind: 'COST', description: 'Late cost', estimatedAmount: 1 }, 'POST', 409);
+  await request(`/shipments/${leg.id}/tracking`, operator, { eventType: 'DEPARTED', location: 'Tamper' }, 'POST', 409);
+  assert.ok((await request('/jobs/finance', admin)).groups.some(row => row.currency === 'IDR'));
+  console.log('PASS: internal JPT quotation, manual acceptance, job, shipment/POD, costs, invoice, concurrent partial payments, documents, warehouse/claim/container settlement and closing.');
+}
+async function cleanup() {
+  const documents = await prisma.jobDocument.findMany({ where: { jobId: { in: created.jobs } } });
+  const pods = await prisma.pOD.findMany({ where: { shipment: { jobId: { in: created.jobs } } } });
+  for (const doc of documents) if (doc.filename) await fs.unlink(path.join(__dirname, '../backend/uploads/job-documents', path.basename(doc.filename))).catch(() => {});
+  for (const pod of pods) await fs.unlink(path.join(__dirname, '../backend/uploads/pods', path.basename(pod.imageUrl))).catch(() => {});
+  await prisma.jobPayment.deleteMany({ where: { jobId: { in: created.jobs } } });
+  await prisma.invoice.deleteMany({ where: { jobId: { in: created.jobs } } });
+  await prisma.jobDocument.deleteMany({ where: { jobId: { in: created.jobs } } });
+  await prisma.trackingEvent.deleteMany({ where: { shipment: { jobId: { in: created.jobs } } } });
+  await prisma.pOD.deleteMany({ where: { shipment: { jobId: { in: created.jobs } } } });
+  await prisma.shipment.deleteMany({ where: { jobId: { in: created.jobs } } });
+  await prisma.jobOrder.deleteMany({ where: { id: { in: created.jobs } } });
+  await prisma.salesQuotation.deleteMany({ where: { id: { in: created.quotations } } });
+  await prisma.activityLog.deleteMany({ where: { OR: [{ entityId: { in: [...created.jobs, ...created.quotations, created.company?.id, created.user?.id].filter(Boolean) } }, ...(created.user?.id ? [{ userId: created.user.id }] : [])] } });
+  if (created.user) await prisma.user.delete({ where: { id: created.user.id } });
+  await prisma.$disconnect();
+}
+main().catch(error => { console.error(`FAIL: ${error.stack}`); process.exitCode = 1; }).finally(async () => { try { await cleanup(); } catch (error) { console.error(`Cleanup failed: ${error.message}`); process.exitCode = 1; } });

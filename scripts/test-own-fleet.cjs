@@ -1,0 +1,92 @@
+const assert = require('node:assert/strict');
+const { randomUUID } = require('node:crypto');
+const { PrismaClient } = require('../backend/node_modules/@prisma/client');
+const api = process.env.SCMU_API_URL || 'http://127.0.0.1:5000';
+const db = process.env.SCMU_DEMO_DATABASE_URL || 'postgresql://scmu_demo@127.0.0.1:55432/scmu_demo';
+assert.ok(['localhost', '127.0.0.1'].includes(new URL(api).hostname));
+assert.ok(['localhost', '127.0.0.1'].includes(new URL(db).hostname) && new URL(db).pathname === '/scmu_demo');
+const prisma = new PrismaClient({ datasources: { db: { url: db } } });
+const marker = `Fleet test ${randomUUID()}`; let jobId; const extraShipments = [];
+async function request(path, token, body, method = body ? 'POST' : 'GET', expected) {
+  const response = await fetch(`${api}/api${path}`, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body && JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+  const result = await response.json();
+  if (expected) assert.equal(response.status, expected, `${method} ${path}: ${JSON.stringify(result)}`);
+  else assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(result)}`);
+  return result;
+}
+async function main() {
+  const admin = (await request('/auth/login', null, { email: 'operasional@scmu.local', password: 'Ops@1234' })).token;
+  const superAdmin = (await request('/auth/login', null, { email: 'admin@scmu.local', password: 'Admin@1234' })).token;
+  const companies = (await request('/companies?limit=200', admin)).data;
+  const own = companies.find(company => company.isInternal); const vendor = companies.find(company => !company.isInternal && company.type === 'TRANSPORTER');
+  const vehicles = (await request('/fleet?limit=200', admin)).data; const drivers = (await request('/drivers?limit=200', admin)).data;
+  const ownVehicle = vehicles.find(vehicle => vehicle.companyId === own.id); const ownDriver = drivers.find(driver => driver.companyId === own.id);
+  const externalVehicle = vehicles.find(vehicle => vehicle.companyId !== own.id);
+  assert.ok(ownVehicle && ownDriver && externalVehicle);
+  const job = await request('/jobs', admin, { title: marker, originCity: 'Surabaya', destCity: 'Merauke', cargoDescription: 'Own fleet and external carrier check', packages: 10, weightKg: 1200, currency: 'IDR' }); jobId = job.id;
+  const base = `/jobs/${job.id}`; const leg = { transportSource: 'INTERNAL', mode: 'ROAD', originCity: 'Surabaya', destCity: 'Pelabuhan Tanjung Perak', loadingDate: new Date().toISOString(), vehicleId: ownVehicle.id, driverId: ownDriver.id };
+  for (const changes of [{ driverId: null }, { mode: 'SEA' }, { carrierId: vendor.id }, { vehicleId: externalVehicle.id }, { transportSource: 'EXTERNAL', carrierId: vendor.id }, { transportSource: 'EXTERNAL', mode: 'AIR', carrierId: vendor.id }]) await request(`${base}/shipments`, admin, { ...leg, ...changes }, 'POST', 422);
+  await request(`${base}/shipments`, admin, { transportSource: 'EXTERNAL', mode: 'SEA', originCity: 'Surabaya', destCity: 'Merauke', loadingDate: leg.loadingDate }, 'POST', 422);
+  const pickup = await request(`${base}/shipments`, admin, leg); assert.equal(pickup.carrierId, null);
+  const sea = await request(`${base}/shipments`, superAdmin, { ...leg, transportSource: 'EXTERNAL', mode: 'SEA', carrierId: vendor.id, vehicleId: null, driverId: null, originCity: 'Pelabuhan Tanjung Perak', destCity: 'Pelabuhan Merauke', bookingNumber: marker });
+  const delivery = await request(`${base}/shipments`, admin, { ...leg, originCity: 'Pelabuhan Merauke', destCity: 'Merauke' });
+  await request(`/shipments/${pickup.id}`, admin, { vehicleId: externalVehicle.id }, 'PUT', 422);
+  const standAlone = await request('/shipments', admin, { ...leg, originState: 'Jawa Timur', destState: 'Jawa Timur' }); extraShipments.push(standAlone.id);
+  assert.equal(standAlone.transportSource, 'INTERNAL');
+  const cost = { kind: 'COST', costSource: 'INTERNAL', costCategory: 'FUEL', description: 'BBM SCMU', estimatedAmount: 1000000, shipmentId: pickup.id };
+  await request(`${base}/charges`, admin, { ...cost, vendorId: vendor.id }, 'POST', 422);
+  await request(`${base}/charges`, admin, { ...cost, shipmentId: sea.id }, 'POST', 422);
+  await request(`${base}/charges`, admin, { ...cost, shipmentId: standAlone.id }, 'POST', 422);
+  const fuel = await request(`${base}/charges`, admin, cost);
+  const allowance = await request(`${base}/charges`, admin, { ...cost, costCategory: 'DRIVER_ALLOWANCE', description: 'Uang jalan SCMU', shipmentId: delivery.id });
+  const freight = await request(`${base}/charges`, admin, { ...cost, costSource: 'VENDOR', costCategory: 'FREIGHT', description: 'Kapal mitra', estimatedAmount: 8000000, vendorId: vendor.id, shipmentId: sea.id });
+  for (const charge of [fuel, allowance, freight]) await request(`${base}/charges/${charge.id}/review`, superAdmin, { status: 'APPROVED' });
+  await request(`/shipments/${pickup.id}`, admin, { transportSource: 'EXTERNAL', carrierId: vendor.id, vehicleId: null, driverId: null }, 'PUT', 409);
+  const revenue = await request(`${base}/charges`, admin, { kind: 'REVENUE', description: 'Pengiriman gabungan', estimatedAmount: 15000000 });
+  await request(`${base}/charges/${revenue.id}/review`, admin, { status: 'APPROVED' });
+  const invoice = await request(`${base}/invoices`, admin, { taxAmount: 0 });
+  const internalPayment = { direction: 'INTERNAL_EXPENSE', chargeId: fuel.id, amount: 500000, reference: 'KAS-001', paidTo: ownDriver.name, method: 'CASH', notes: 'Bukti BBM', isAdvance: true };
+  await request(`${base}/payments`, admin, { ...internalPayment, direction: 'PAYABLE' }, 'POST', 422);
+  await request(`${base}/payments`, admin, { ...internalPayment, chargeId: freight.id }, 'POST', 422);
+  await request(`${base}/payments`, admin, { ...internalPayment, paidTo: '' }, 'POST', 422);
+  await request(`${base}/payments`, admin, internalPayment);
+  await request(`${base}/payments`, admin, internalPayment, 'POST', 409);
+  await request(`${base}/payments`, admin, { ...internalPayment, amount: 500001, reference: 'OVERPAY' }, 'POST', 409);
+  const competing = await Promise.all([1, 2].map(index => fetch(`${api}/api${base}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin}` }, body: JSON.stringify({ ...internalPayment, amount: 500000, reference: `RACE-${index}` }) })));
+  assert.deepEqual(competing.map(response => response.status).sort(), [201, 409]);
+  await request(`${base}/payments`, admin, { direction: 'PAYABLE', chargeId: freight.id, amount: 8000000, reference: 'KAPAL-001' });
+  await request(`${base}/payments`, admin, { direction: 'RECEIVABLE', invoiceId: invoice.id, amount: 15000000, reference: 'AR-001' });
+  let current = await request(base, admin);
+  assert.equal(current.financials.internalCost, '2000000.00'); assert.equal(current.financials.vendorCost, '8000000.00');
+  assert.equal(current.financials.approvedCost, '10000000.00'); assert.equal(current.financials.grossProfit, '5000000.00');
+  assert.equal(current.financials.payable, '0.00'); assert.equal(current.financials.internalExpensePaid, '1000000.00'); assert.equal(current.financials.internalOutstanding, '1000000.00');
+  const finance = await request('/jobs/finance', admin);
+  assert.ok(!finance.payables.some(row => [fuel.id, allowance.id].includes(row.id)));
+  assert.ok(finance.internalExpenses.some(row => row.id === allowance.id && row.balance === '1000000.00'));
+  for (const shipment of [pickup, sea, delivery]) await request(`/shipments/${shipment.id}/tracking`, admin, { eventType: 'DELIVERED', location: shipment.destCity });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1kAAAAASUVORK5CYII=', 'base64');
+  current = await request(base, admin);
+  for (const document of current.documents.filter(document => document.required)) {
+    const form = new FormData(); form.append('file', new Blob([png], { type: 'image/png' }), 'proof.png');
+    const response = await fetch(`${api}/api${base}/documents/${document.id}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${admin}` }, body: form });
+    assert.equal(response.status, 200); await request(`${base}/documents/${document.id}/verify`, superAdmin, {});
+  }
+  await request(`${base}/close`, admin, {}, 'POST', 409);
+  await request(`${base}/payments`, admin, { ...internalPayment, chargeId: allowance.id, amount: 1000000, reference: 'UANG-JALAN-FINAL', isAdvance: false });
+  assert.equal((await request(`${base}/close`, admin, {})).status, 'CLOSED');
+  await request(`${base}/payments`, superAdmin, { ...internalPayment, reference: 'AFTER-CLOSE' }, 'POST', 409);
+  console.log('PASS: SCMU/vendor ownership, mixed road-sea-road job, internal cost categories, separate settlements/aging, recipient, duplicate/overpayment/concurrent guards, documents and closing.');
+}
+async function cleanup() {
+  if (jobId) {
+    const documents = await prisma.jobDocument.findMany({ where: { jobId } });
+    const files = require('../backend/src/services/jobFiles');
+    for (const document of documents) if (document.filename) await files.removeFile(document.filename);
+    await prisma.jobPayment.deleteMany({ where: { jobId } }); await prisma.invoice.deleteMany({ where: { jobId } });
+    await prisma.jobDocument.deleteMany({ where: { jobId } }); await prisma.jobCharge.deleteMany({ where: { jobId } });
+    await prisma.trackingEvent.deleteMany({ where: { shipment: { jobId } } }); await prisma.shipment.deleteMany({ where: { jobId } });
+    await prisma.jobOrder.delete({ where: { id: jobId } }); await prisma.activityLog.deleteMany({ where: { entityId: jobId } });
+  }
+  if (extraShipments.length) await prisma.shipment.deleteMany({ where: { id: { in: extraShipments } } });
+}
+main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { try { await cleanup(); } finally { await prisma.$disconnect(); } });

@@ -1,0 +1,691 @@
+// SCMU — Prisma Schema
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================
+// USER & AUTH
+// ========================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  OPERATOR
+  VIEWER
+  TRANSPORTER
+  CUSTOMER
+}
+
+model User {
+  id          String    @id @default(uuid())
+  name        String
+  email       String    @unique
+  password    String
+  role        UserRole  @default(ADMIN)
+  phone       String?
+  isActive    Boolean   @default(true)
+  companyId   String?
+  company     Company?  @relation(fields: [companyId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  rfqsCreated     RFQ[]        @relation("CreatedBy")
+  shipmentsCreated Shipment[]  @relation("CreatedBy")
+  quotes          Quote[]
+  activityLogs    ActivityLog[]
+  salesQuotations SalesQuotation[]
+  jobsCreated     JobOrder[]
+
+  @@map("users")
+}
+
+// ========================
+// MASTERS
+// ========================
+
+enum CompanyType {
+  SHIPPER
+  TRANSPORTER
+  BROKER
+  CONSIGNEE
+  BOTH
+}
+
+model Company {
+  isInternal   Boolean @default(false)
+  id           String      @id @default(uuid())
+  name         String
+  type         CompanyType
+  gstin        String?
+  pan          String?
+  address      String?
+  city         String?
+  state        String?
+  pincode      String?
+  phone        String?
+  email        String?
+  contactPerson String?
+  npwp          String?
+  paymentTermsDays Int @default(30)
+  creditLimit   Decimal @default(0) @db.Decimal(18, 2)
+  notes         String?
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  users        User[]
+  vehicles     Vehicle[]
+  drivers      Driver[]
+  rfqs         RFQ[]       @relation("ShipperCompany")
+  quotes       Quote[]     @relation("TransporterCompany")
+  shipments    Shipment[]  @relation("ShipperCompany")
+  invoices     Invoice[]
+  salesQuotations SalesQuotation[]
+  customerJobs JobOrder[]
+  jobCharges   JobCharge[]
+  carriedShipments Shipment[] @relation("CarrierCompany")
+
+  @@map("companies")
+}
+
+enum VehicleType {
+  TRUCK
+  TRAILER
+  CONTAINER
+  TANKER
+  REFRIGERATED
+  FLATBED
+  MINI_TRUCK
+  TEMPO
+}
+
+model Vehicle {
+  id              String      @id @default(uuid())
+  registrationNo  String      @unique
+  type            VehicleType
+  capacity        Float       // in tonnes
+  bodyType        String?
+  make            String?
+  model           String?
+  year            Int?
+  insuranceExpiry DateTime?
+  pucExpiry       DateTime?
+  fitnessExpiry   DateTime?
+  permitExpiry    DateTime?
+  companyId       String?
+  company         Company?    @relation(fields: [companyId], references: [id])
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  trips           Shipment[]
+  @@map("vehicles")
+}
+
+model Driver {
+  id              String    @id @default(uuid())
+  name            String
+  phone           String    @unique
+  licenseNo       String    @unique
+  licenseExpiry   DateTime?
+  address         String?
+  city            String?
+  state           String?
+  emergencyContact String?
+  rating          Float     @default(5.0)
+  totalTrips      Int       @default(0)
+  companyId       String?
+  company         Company?  @relation(fields: [companyId], references: [id])
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  trips           Shipment[]
+  @@map("drivers")
+}
+
+model GoodsType {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isHazardous Boolean  @default(false)
+  isPerishable Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  rfqs        RFQ[]
+  shipments   Shipment[]
+  @@map("goods_types")
+}
+
+model Route {
+  id            String   @id @default(uuid())
+  name          String
+  originCity    String
+  originState   String
+  destCity      String
+  destState     String
+  distanceKm    Float?
+  estimatedDays Int?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  rfqs          RFQ[]
+  shipments     Shipment[]
+  @@map("routes")
+}
+
+// ========================
+// RFQ & INDENTING
+// ========================
+
+enum RFQStatus {
+  DRAFT
+  OPEN
+  QUOTED
+  AWARDED
+  CANCELLED
+  EXPIRED
+}
+
+model RFQ {
+  id              String    @id @default(uuid())
+  rfqNumber       String    @unique
+  title           String
+  shipperCompanyId String
+  shipper         Company   @relation("ShipperCompany", fields: [shipperCompanyId], references: [id])
+  originCity      String
+  originState     String
+  destCity        String
+  destState       String
+  routeId         String?
+  route           Route?    @relation(fields: [routeId], references: [id])
+  goodsTypeId     String?
+  goodsType       GoodsType? @relation(fields: [goodsTypeId], references: [id])
+  weight          Float?
+  quantity        Int       @default(1)
+  vehicleType     VehicleType
+  loadingDate     DateTime
+  deliveryDate    DateTime?
+  description     String?
+  basePrice       Float?
+  currency        String @default("IDR")
+  status          RFQStatus @default(OPEN)
+  createdById     String
+  createdBy       User      @relation("CreatedBy", fields: [createdById], references: [id])
+  expiresAt       DateTime?
+  awardedQuoteId  String?   @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  quotes          Quote[]
+  awardedQuote    Quote?    @relation("AwardedQuote", fields: [awardedQuoteId], references: [id])
+
+  @@map("rfqs")
+}
+
+enum QuoteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+  EXPIRED
+}
+
+model Quote {
+  id              String      @id @default(uuid())
+  rfqId           String
+  rfq             RFQ         @relation(fields: [rfqId], references: [id])
+  transporterId   String
+  transporter     Company     @relation("TransporterCompany", fields: [transporterId], references: [id])
+  submittedById   String
+  submittedBy     User        @relation(fields: [submittedById], references: [id])
+  amount          Float
+  currency        String      @default("IDR")
+  validUntil      DateTime?
+  notes           String?
+  status          QuoteStatus @default(PENDING)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  awardedFor      RFQ?        @relation("AwardedQuote")
+  shipment        Shipment?
+
+  @@map("quotes")
+}
+
+// ========================
+// SHIPMENTS & TRACKING
+// ========================
+
+enum ShipmentStatus {
+  PENDING
+  ASSIGNED
+  IN_TRANSIT
+  REACHED_DESTINATION
+  DELIVERED
+  POD_UPLOADED
+  COMPLETED
+  CANCELLED
+}
+
+model Shipment {
+  id              String         @id @default(uuid())
+  shipmentNumber  String         @unique
+  jobId           String?
+  job             JobOrder?      @relation(fields: [jobId], references: [id])
+  sequence        Int            @default(1)
+  mode            TransportMode  @default(ROAD)
+  transportSource TransportSource @default(EXTERNAL)
+  currency        String         @default("IDR")
+  carrierId       String?
+  carrier         Company?       @relation("CarrierCompany", fields: [carrierId], references: [id])
+  bookingNumber   String?
+  vesselFlight    String?
+  containerNumber String?
+  sealNumber      String?
+  freeUntil       DateTime?
+  emptyReturnedAt DateTime?
+  shipperCompanyId String
+  shipper         Company        @relation("ShipperCompany", fields: [shipperCompanyId], references: [id])
+  quoteId         String?        @unique
+  quote           Quote?         @relation(fields: [quoteId], references: [id])
+  routeId         String?
+  route           Route?         @relation(fields: [routeId], references: [id])
+  vehicleId       String?
+  vehicle         Vehicle?       @relation(fields: [vehicleId], references: [id])
+  driverId        String?
+  driver          Driver?        @relation(fields: [driverId], references: [id])
+  goodsTypeId     String?
+  goodsType       GoodsType?     @relation(fields: [goodsTypeId], references: [id])
+  originCity      String
+  originState     String
+  destCity        String
+  destState       String
+  weight          Float?
+  quantity        Int            @default(1)
+  freightAmount   Float?
+  loadingDate     DateTime
+  expectedDelivery DateTime?
+  actualDelivery  DateTime?
+  status          ShipmentStatus @default(PENDING)
+  ewayBillNo      String?
+  ewayBillExpiry  DateTime?
+  lrNumber        String?
+  notes           String?
+  createdById     String
+  createdBy       User           @relation("CreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  trackingEvents  TrackingEvent[]
+  pods            POD[]
+  invoice         Invoice?
+  jobDocuments    JobDocument[]
+  charges         JobCharge[]
+
+  @@index([jobId, sequence])
+
+  @@map("shipments")
+}
+
+model TrackingEvent {
+  id          String    @id @default(uuid())
+  shipmentId  String
+  shipment    Shipment  @relation(fields: [shipmentId], references: [id])
+  eventType   String    // DEPARTED, REACHED_CHECKPOINT, HALTED, DELIVERED, etc.
+  location    String
+  city        String?
+  state       String?
+  latitude    Float?
+  longitude   Float?
+  notes       String?
+  recordedAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  @@map("tracking_events")
+}
+
+model POD {
+  id          String   @id @default(uuid())
+  shipmentId  String
+  shipment    Shipment @relation(fields: [shipmentId], references: [id])
+  imageUrl    String
+  signedBy    String?
+  receivedAt  DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@map("pods")
+}
+
+// ========================
+// INVOICES
+// ========================
+
+enum InvoiceStatus {
+  PENDING
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  DISPUTED
+  PAID
+  CANCELLED
+}
+
+model Invoice {
+  id              String        @id @default(uuid())
+  invoiceNumber   String        @unique
+  shipmentId      String?       @unique
+  shipment        Shipment?     @relation(fields: [shipmentId], references: [id])
+  jobId           String?
+  job             JobOrder?    @relation(fields: [jobId], references: [id])
+  companyId       String
+  company         Company       @relation(fields: [companyId], references: [id])
+  freightAmount   Float
+  gstAmount       Float         @default(0)
+  totalAmount     Float
+  currency        String        @default("IDR")
+  status          InvoiceStatus @default(PENDING)
+  invoiceDate     DateTime
+  dueDate         DateTime?
+  paidDate        DateTime?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  items           InvoiceItem[]
+  payments        JobPayment[]
+
+  @@map("invoices")
+}
+
+enum TransportMode {
+  ROAD
+  SEA
+  AIR
+  RAIL
+}
+
+enum TransportSource {
+  INTERNAL
+  EXTERNAL
+}
+
+enum CostSource {
+  INTERNAL
+  VENDOR
+}
+
+enum CostCategory {
+  FUEL
+  TOLL
+  PARKING
+  DRIVER_ALLOWANCE
+  LOADING_UNLOADING
+  FREIGHT
+  OTHER
+}
+
+enum SalesQuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum JobStatus {
+  BOOKED
+  IN_PROGRESS
+  DELIVERED
+  CLOSED
+  CANCELLED
+}
+
+enum ChargeKind {
+  REVENUE
+  COST
+}
+
+enum ApprovalStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+enum DocumentStatus {
+  PENDING
+  UPLOADED
+  VERIFIED
+}
+
+enum PaymentDirection {
+  RECEIVABLE
+  PAYABLE
+  INTERNAL_EXPENSE
+}
+
+enum OperationKind {
+  WAREHOUSE
+  CUSTOMS
+  CLAIM
+  INSURANCE
+}
+
+model SalesQuotation {
+  id              String @id @default(uuid())
+  quotationNumber String @unique
+  customerId      String
+  customer        Company @relation(fields: [customerId], references: [id])
+  title           String
+  originCity      String
+  destCity        String
+  serviceType     String @default("DOMESTIC")
+  cargoDescription String
+  packages        Int @default(1)
+  weightKg        Decimal @default(0) @db.Decimal(16, 3)
+  volumeCbm       Decimal @default(0) @db.Decimal(16, 4)
+  currency        String @default("IDR")
+  validUntil      DateTime
+  plannedPickup   DateTime?
+  expectedDelivery DateTime?
+  terms           String?
+  status          SalesQuotationStatus @default(DRAFT)
+  revision        Int @default(1)
+  createdById     String
+  createdBy       User @relation(fields: [createdById], references: [id])
+  items           SalesQuotationItem[]
+  job             JobOrder?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([customerId, status])
+  @@map("sales_quotations")
+}
+
+model SalesQuotationItem {
+  id          String @id @default(uuid())
+  quotationId String
+  quotation   SalesQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal @db.Decimal(16, 4)
+  unit        String @default("JOB")
+  sellRate    Decimal @db.Decimal(18, 2)
+  buyRate     Decimal @default(0) @db.Decimal(18, 2)
+
+  @@map("sales_quotation_items")
+}
+
+model JobOrder {
+  id              String @id @default(uuid())
+  jobNumber       String @unique
+  title           String
+  customerId      String
+  customer        Company @relation(fields: [customerId], references: [id])
+  quotationId     String? @unique
+  quotation       SalesQuotation? @relation(fields: [quotationId], references: [id])
+  customerReference String?
+  serviceType     String @default("DOMESTIC")
+  originCity      String
+  destCity        String
+  cargoDescription String
+  packages        Int @default(1)
+  weightKg        Decimal @default(0) @db.Decimal(16, 3)
+  volumeCbm       Decimal @default(0) @db.Decimal(16, 4)
+  recipientName   String?
+  deliveryAddress String?
+  currency        String @default("IDR")
+  plannedPickup   DateTime?
+  expectedDelivery DateTime?
+  notes           String?
+  status          JobStatus @default(BOOKED)
+  createdById     String
+  createdBy       User @relation(fields: [createdById], references: [id])
+  shipments       Shipment[]
+  charges         JobCharge[]
+  documents       JobDocument[]
+  invoices        Invoice[]
+  payments        JobPayment[]
+  operations      JobOperation[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([customerId, status])
+  @@map("job_orders")
+}
+
+model JobCharge {
+  id              String @id @default(uuid())
+  jobId           String
+  job             JobOrder @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  kind            ChargeKind
+  costSource      CostSource @default(VENDOR)
+  costCategory    CostCategory @default(OTHER)
+  shipmentId      String?
+  shipment        Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  description     String
+  estimatedAmount Decimal @db.Decimal(18, 2)
+  actualAmount    Decimal? @db.Decimal(18, 2)
+  vendorId        String?
+  vendor          Company? @relation(fields: [vendorId], references: [id])
+  status          ApprovalStatus @default(PROPOSED)
+  dueDate         DateTime?
+  notes           String?
+  createdById     String
+  approvedById    String?
+  approvedAt      DateTime?
+  invoiceItem     InvoiceItem?
+  payments        JobPayment[]
+  createdAt       DateTime @default(now())
+
+  @@index([jobId, kind, status])
+  @@index([shipmentId])
+  @@map("job_charges")
+}
+
+model JobDocument {
+  id          String @id @default(uuid())
+  jobId       String
+  job         JobOrder @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  shipmentId  String?
+  shipment    Shipment? @relation(fields: [shipmentId], references: [id])
+  type        String
+  title       String
+  required    Boolean @default(false)
+  customerVisible Boolean @default(true)
+  status      DocumentStatus @default(PENDING)
+  filename    String?
+  originalName String?
+  mimeType    String?
+  size        Int?
+  expiresAt   DateTime?
+  uploadedById String?
+  verifiedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([jobId, status])
+  @@map("job_documents")
+}
+
+model InvoiceItem {
+  id          String @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  chargeId    String? @unique
+  charge      JobCharge? @relation(fields: [chargeId], references: [id])
+  description String
+  amount      Decimal @db.Decimal(18, 2)
+
+  @@map("invoice_items")
+}
+
+model JobPayment {
+  id          String @id @default(uuid())
+  jobId       String
+  job         JobOrder @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  direction   PaymentDirection
+  invoiceId   String?
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id])
+  chargeId    String?
+  charge      JobCharge? @relation(fields: [chargeId], references: [id])
+  amount      Decimal @db.Decimal(18, 2)
+  reference   String
+  method      String @default("BANK_TRANSFER")
+  paidTo      String?
+  notes       String?
+  isAdvance   Boolean @default(false)
+  paidAt      DateTime
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@unique([jobId, reference, direction])
+  @@map("job_payments")
+}
+
+model JobOperation {
+  id          String @id @default(uuid())
+  jobId       String
+  job         JobOrder @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  kind        OperationKind
+  status      String
+  reference   String
+  location    String?
+  party       String?
+  quantity    Int?
+  amount      Decimal? @db.Decimal(18, 2)
+  eventDate   DateTime
+  expiresAt   DateTime?
+  notes       String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([jobId, kind])
+  @@map("job_operations")
+}
+
+// ========================
+// ACTIVITY LOG
+// ========================
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@map("activity_logs")
+}

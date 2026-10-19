@@ -1,0 +1,126 @@
+import { useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../i18n/LanguageContext';
+import { PageHeader, StatCard } from '../../components/common';
+import { Button, DataTable, Fields, ModalForm, Notice, ResourceState, StatusBadge, Tabs, useAction, useResource, vendorOptions } from '../../components/jpt/Workspace';
+import { formatDate, formatMoney } from '../../utils/format.mjs';
+import { COST_CATEGORIES, changeTransport, transportFormFields } from '../../components/jpt/transport.mjs';
+import { printDeliveryNote } from '../../utils/commercialPrint';
+import { createInvoiceHtml } from '../Invoices/invoiceTemplate.mjs';
+
+export const operationStatuses = { WAREHOUSE: ['IN', 'OUT'], CUSTOMS: ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'RELEASED'], CLAIM: ['OPEN', 'UNDER_REVIEW', 'APPROVED', 'SETTLED', 'REJECTED'], INSURANCE: ['ACTIVE', 'EXPIRED', 'CANCELLED'] };
+export async function downloadDocument(url, name) {
+  const response = await api.get(url, { responseType: 'blob' }); const href = URL.createObjectURL(response.data);
+  const link = document.createElement('a'); link.href = href; link.download = name || 'document'; link.click(); setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+export function printJobInvoice(invoice, job, options) {
+  const popup = window.open('', '_blank'); if (!popup) throw new Error('Please allow pop-ups to print');
+  popup.document.write(createInvoiceHtml({ ...invoice, company: job.customer, job }, options)); popup.document.close();
+  Promise.all(Array.from(popup.document.images).map(img => img.decode?.().catch(() => {}) ?? Promise.resolve())).then(() => { popup.focus(); popup.print(); });
+}
+const localDate = value => value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+
+export default function JobDetail() {
+  const { id } = useParams(); const { t, locale, language } = useLanguage(); const { user, canManage } = useAuth();
+  const resource = useResource(`/jobs/${id}`); const companies = useResource('/companies?limit=200'); const job = resource.data;
+  const fleet = useResource('/fleet?limit=200'); const drivers = useResource('/drivers?limit=200');
+  const action = useAction(resource.reload); const [tab, setTab] = useState('transport'); const [dialog, setDialog] = useState(null); const [form, setForm] = useState({}); const [file, setFile] = useState(null);
+  const finance = canManage(); const operator = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
+  const editable = job && !['CLOSED', 'CANCELLED'].includes(job.status); const base = `/jobs/${id}`;
+  const money = amount => formatMoney(amount, job?.currency, locale);
+  const open = (type, values = {}, target = null) => { setForm(values); setFile(null); setDialog({ type, target }); };
+  const change = (key, value) => setForm(previous => dialog?.type === 'leg' ? changeTransport(previous, key, value) : ({ ...previous, [key]: value,
+    ...(key === 'costSource' ? { vendorId: '', shipmentId: '' } : {}), ...(key === 'vendorId' ? { shipmentId: '' } : {}),
+    ...(key === 'kind' && dialog?.type === 'operation' ? { status: operationStatuses[value][0] } : {}) }));
+  const vendors = vendorOptions(companies.data?.data || []);
+  const submit = async () => {
+    const target = dialog.target; let endpoint; let method = 'post'; let payload = form;
+    switch (dialog.type) {
+      case 'leg': endpoint = `${base}/shipments`; break;
+      case 'charge': endpoint = target ? `${base}/charges/${target.id}` : `${base}/charges`; if (target) method = 'put'; break;
+      case 'review': endpoint = `${base}/charges/${target.id}/review`; break;
+      case 'document': endpoint = `${base}/documents`; payload = { ...form, required: form.required === 'yes', customerVisible: false }; break;
+      case 'upload': endpoint = `${base}/documents/${target.id}/upload`; payload = new FormData(); payload.append('file', file); break;
+      case 'invoice': endpoint = `${base}/invoices`; break;
+      case 'payment': endpoint = `${base}/payments`; payload = { ...form, isAdvance: form.isAdvance === 'yes' }; break;
+      case 'operation': endpoint = `${base}/operations`; break;
+      case 'operationStatus': endpoint = `${base}/operations/${target.id}`; method = 'put'; break;
+      case 'edit': endpoint = base; method = 'put'; break;
+      case 'close': endpoint = `${base}/close`; break;
+      default: throw new Error('Unknown action');
+    }
+    await api[method](endpoint, payload); resource.reload();
+  };
+  const formFields = () => {
+    switch (dialog.type) {
+      case 'leg': return [
+        ...transportFormFields(form, { companies: companies.data?.data, vehicles: fleet.data?.data, drivers: drivers.data?.data, t }),
+        { key: 'originCity', label: 'Origin City', required: true }, { key: 'destCity', label: 'Destination City', required: true },
+        { key: 'loadingDate', label: 'Loading Date', type: 'datetime-local', required: true }, { key: 'expectedDelivery', label: 'Expected Delivery', type: 'datetime-local' },
+        ...(form.transportSource === 'EXTERNAL' ? [{ key: 'bookingNumber', label: 'Booking number' }] : []),
+        ...(['SEA', 'AIR'].includes(form.mode) ? [{ key: 'vesselFlight', label: 'Vessel / flight' }] : []),
+        ...(['ROAD', 'SEA'].includes(form.mode) ? [{ key: 'containerNumber', label: 'Container number' }, { key: 'sealNumber', label: 'Seal number' }] : []),
+        ...(form.mode === 'SEA' ? [{ key: 'freeUntil', label: 'Container free until', type: 'datetime-local' }] : []), { key: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+      case 'charge': return [ ...(!dialog.target ? [{ key: 'kind', label: 'Charge type', options: ['REVENUE', 'COST'], required: true }] : []),
+        { key: 'description', label: 'Description', required: true }, { key: 'estimatedAmount', label: 'Estimated amount', type: 'number', min: 0, step: 0.01, required: true },
+        ...(form.kind === 'COST' ? [
+          { key: 'costSource', label: 'Cost source', required: true, options: [{ value: 'INTERNAL', label: t('Internal operating cost') }, { value: 'VENDOR', label: t('Vendor bill') }] },
+          { key: 'costCategory', label: 'Cost category', options: COST_CATEGORIES, required: true },
+          ...(form.costSource === 'VENDOR' ? [{ key: 'vendorId', label: 'Vendor', options: vendors, placeholder: 'Select company...' }] : []),
+          { key: 'shipmentId', label: 'Transport leg', options: job.shipments.filter(leg => leg.status !== 'CANCELLED' && leg.transportSource === (form.costSource === 'INTERNAL' ? 'INTERNAL' : 'EXTERNAL') && (!form.vendorId || leg.carrierId === form.vendorId)).map(leg => ({ value: leg.id, label: `${leg.sequence}. ${leg.originCity} → ${leg.destCity}` })), placeholder: 'Whole job' },
+        ] : []),
+        { key: 'dueDate', label: 'Due Date', type: 'date' }, { key: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+      case 'review': return [{ key: 'status', label: 'Decision', options: ['APPROVED', 'REJECTED'], required: true }, ...(form.status === 'APPROVED' ? [{ key: 'actualAmount', label: 'Approved actual amount', type: 'number', min: 0, step: 0.01, required: true }] : [])];
+      case 'document': return [{ key: 'title', label: 'Document title', required: true }, { key: 'type', label: 'Document type', options: ['SURAT_JALAN', 'PACKING_LIST', 'BILL_OF_LADING', 'AIR_WAYBILL', 'POD', 'CUSTOMS', 'CLAIM', 'OTHER'], required: true }, { key: 'required', label: 'Required', options: [{ value: 'yes', label: t('Yes') }, { value: 'no', label: t('No') }], required: true }, { key: 'expiresAt', label: 'Expiry date', type: 'date' }];
+      case 'invoice': return [{ key: 'taxAmount', label: 'Tax amount', type: 'number', min: 0, step: 0.01, required: true }, { key: 'dueDate', label: 'Due Date', type: 'date' }, { key: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+      case 'payment': return [{ key: 'amount', label: 'Payment amount', type: 'number', min: 0.01, step: 0.01, required: true }, { key: 'reference', label: 'Payment reference', required: true }, { key: 'method', label: 'Payment method', options: ['BANK_TRANSFER', 'CASH', 'OTHER'], required: true },
+        ...(form.direction === 'INTERNAL_EXPENSE' ? [{ key: 'paidTo', label: 'Payment recipient', required: true }] : []),
+        { key: 'isAdvance', label: 'Advance payment', options: [{ value: 'yes', label: t('Yes') }, { value: 'no', label: t('No') }], required: true }, { key: 'paidAt', label: 'Paid Date', type: 'datetime-local' }, { key: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+      case 'operation': return [{ key: 'kind', label: 'Operation type', options: Object.keys(operationStatuses), required: true }, { key: 'status', label: 'Status', options: operationStatuses[form.kind], required: true }, { key: 'reference', label: 'Reference', required: true }, { key: 'location', label: 'Location', required: form.kind === 'WAREHOUSE' }, { key: 'party', label: 'Agent / insurer' }, ...(form.kind === 'WAREHOUSE' ? [{ key: 'quantity', label: 'Packages', type: 'number', min: 1, step: 1, required: true }] : [{ key: 'amount', label: 'Declared amount', type: 'number', min: 0, step: 0.01 }]), { key: 'eventDate', label: 'Event date', type: 'datetime-local' }, { key: 'expiresAt', label: 'Expiry date', type: 'date' }, { key: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+      case 'operationStatus': return [{ key: 'status', label: 'Status', options: operationStatuses[dialog.target.kind], required: true }, { key: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+      case 'edit': return [{ key: 'customerReference', label: 'Job reference' }, { key: 'recipientName', label: 'Recipient' }, { key: 'deliveryAddress', label: 'Delivery address', type: 'textarea', wide: true }, { key: 'expectedDelivery', label: 'Expected Delivery', type: 'datetime-local' }, { key: 'notes', label: 'Notes', type: 'textarea', wide: true }];
+      default: return [];
+    }
+  };
+  const titles = { leg: 'Add transport leg', charge: 'Propose charge', review: 'Review charge', document: 'Add document checklist', upload: 'Upload document', invoice: 'Generate invoice', payment: 'Record payment', operation: 'Record handling', operationStatus: 'Update status', edit: 'Edit job details', close: 'Close job order' };
+  const costSettlement = source => <DataTable rows={job.charges.filter(row => row.kind === 'COST' && row.status === 'APPROVED' && row.costSource === source)} columns={[
+    { key: 'description', label: 'Description' }, ...(source === 'VENDOR' ? [{ key: 'vendor', label: 'Vendor', render: row => row.vendor?.name }] : [{ key: 'costCategory', label: 'Cost category', render: row => t(row.costCategory) }]),
+    { key: 'actualAmount', label: 'Approved cost', render: row => money(row.actualAmount) },
+    { key: 'balance', label: 'Outstanding balance', render: row => money(Number(row.actualAmount) - row.payments.reduce((sum, payment) => sum + Number(payment.amount), 0)) },
+    { key: 'actions', label: 'Actions', render: row => { const balance = Number(row.actualAmount) - row.payments.reduce((sum, payment) => sum + Number(payment.amount), 0); return editable && finance && balance > 0 && <Button size="sm" onClick={() => open('payment', { direction: source === 'INTERNAL' ? 'INTERNAL_EXPENSE' : 'PAYABLE', chargeId: row.id, amount: balance.toFixed(2), reference: '', method: source === 'INTERNAL' ? 'CASH' : 'BANK_TRANSFER', isAdvance: 'no', paidTo: '' })}>{t(source === 'INTERNAL' ? 'Record internal expense' : 'Pay vendor')}</Button>; } },
+  ]} />;
+  return <div className="space-y-5"><Link to="/jobs" className="text-zinc-400 text-sm">← {t('Job orders')}</Link><Notice message={action.error} />
+    <ResourceState resource={resource}>{job && <>
+      <PageHeader title={job.jobNumber} subtitle={job.title} action={<StatusBadge status={job.status} />} />
+      <div className="card p-5 grid sm:grid-cols-3 gap-4 text-sm text-zinc-300"><div><p className="text-zinc-500 text-xs">{t('SCMU company')}</p>{job.customer.name}</div><div><p className="text-zinc-500 text-xs">{t('Route')}</p>{job.originCity} → {job.destCity}</div><div><p className="text-zinc-500 text-xs">{t('Expected Delivery')}</p>{formatDate(job.expectedDelivery, locale, true)}</div><div><p className="text-zinc-500 text-xs">{t('Cargo description')}</p>{job.cargoDescription} · {job.packages} {t('Packages')} · {job.weightKg} kg · {job.volumeCbm} CBM</div><div><p className="text-zinc-500 text-xs">{t('Recipient')}</p>{job.recipientName || '—'}<p>{job.deliveryAddress}</p></div><div><p className="text-zinc-500 text-xs">{t('Job reference')}</p>{job.customerReference || '—'}{job.quotation && <Link className="block text-brand-400" to={`/sales-quotations/${job.quotation.id}`}>{job.quotation.quotationNumber}</Link>}</div></div>
+      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">{[['revenue', 'Approved revenue'], ['estimatedProfit', 'Estimated gross profit'], ['receivable', 'Receivable'], ['payable', 'Vendor payable'], ['internalCost', 'Internal operating cost'], ['internalOutstanding', 'Internal costs outstanding']].map(([key, label]) => <StatCard key={key} label={t(label)} value={money(job.financials[key])} />)}</div>
+      {job.alerts.length > 0 && <div className="card border-brand-500/30 p-4"><p className="text-sm font-medium text-brand-400 mb-2">{t('Needs attention')}</p><ul className="text-xs text-zinc-400 space-y-1">{job.alerts.map((alert, index) => <li key={index}>{t(alert.type)}: {t(alert.reference)}</li>)}</ul></div>}
+      <div className="flex gap-3">{editable && operator && <Button variant="secondary" onClick={() => open('edit', { customerReference: job.customerReference || '', recipientName: job.recipientName || '', deliveryAddress: job.deliveryAddress || '', expectedDelivery: localDate(job.expectedDelivery), notes: job.notes || '' })}>{t('Edit job details')}</Button>}{editable && finance && <Button variant="secondary" onClick={() => open('close')}>{t('Close job order')}</Button>}</div>
+      <Tabs value={tab} onChange={setTab} items={[{ value: 'transport', label: 'Transport legs' }, { value: 'charges', label: 'Revenue & costs' }, { value: 'documents', label: 'Documents' }, { value: 'finance', label: 'Invoices & payments' }, { value: 'operations', label: 'Handling' }, { value: 'activity', label: 'Activity log' }]} />
+      {tab === 'transport' && <div className="space-y-4">{editable && operator && <Button onClick={() => open('leg', { transportSource: 'INTERNAL', mode: 'ROAD', originCity: job.originCity, destCity: job.destCity, loadingDate: localDate(new Date()), expectedDelivery: localDate(job.expectedDelivery) })}>{t('Add transport leg')}</Button>}<DataTable rows={job.shipments} columns={[
+        { key: 'sequence', label: 'Sequence' }, { key: 'shipmentNumber', label: 'Shipment', render: row => <Link className="text-brand-400" to={`/shipments/${row.id}`}>{row.shipmentNumber}</Link> }, { key: 'mode', label: 'Transport mode', render: row => t(row.mode) }, { key: 'route', label: 'Route', render: row => `${row.originCity} → ${row.destCity}` }, { key: 'carrier', label: 'Transport source', render: row => <>{row.transportSource === 'INTERNAL' ? t('SCMU fleet') : row.carrier?.name || t('External vendor')}<p className="text-xs text-zinc-500">{[row.vehicle?.registrationNo, row.driver?.name].filter(Boolean).join(' · ')}</p></> }, { key: 'status', label: 'Status', render: row => <StatusBadge status={row.status} /> },
+        { key: 'container', label: 'Container / booking', render: row => <div>{row.containerNumber || row.bookingNumber || '—'}<p className="text-xs text-zinc-500">{row.vesselFlight} {row.sealNumber}</p>{row.freeUntil && <p className="text-xs">{t('Container free until')}: {formatDate(row.freeUntil, locale)}</p>}{row.emptyReturnedAt && <p className="text-emerald-400 text-xs">{t('Empty returned')}: {formatDate(row.emptyReturnedAt, locale)}</p>}</div> },
+        { key: 'actions', label: 'Actions', render: row => <div className="flex gap-2 flex-wrap"><Button variant="secondary" size="sm" onClick={() => action.run(() => printDeliveryNote(job, row, { t, locale, language }))}>{t('Print delivery note')}</Button>{editable && operator && row.containerNumber && !row.emptyReturnedAt && <Button size="sm" disabled={action.busy} onClick={() => action.run(() => api.post(`${base}/shipments/${row.id}/empty-return`))}>{t('Record empty return')}</Button>}</div> },
+      ]} /></div>}
+      {tab === 'charges' && <div className="space-y-4"><p className="text-sm text-zinc-400">{t('Charges require approval before billing or vendor payment.')}</p>{editable && operator && <Button onClick={() => open('charge', { kind: 'COST', costSource: 'INTERNAL', costCategory: 'OTHER', estimatedAmount: 0 })}>{t('Propose charge')}</Button>}<DataTable rows={job.charges} columns={[
+        { key: 'kind', label: 'Charge type', render: row => <>{t(row.kind)}{row.kind === 'COST' && <p className="text-xs text-zinc-500">{t(row.costSource === 'INTERNAL' ? 'Internal operating cost' : 'Vendor bill')} · {t(row.costCategory)}</p>}</> }, { key: 'shipmentId', label: 'Transport leg', render: row => job.shipments.find(leg => leg.id === row.shipmentId)?.shipmentNumber || t('Whole job') }, { key: 'description', label: 'Description' }, { key: 'vendor', label: 'Vendor', render: row => row.vendor?.name || '—' }, { key: 'estimatedAmount', label: 'Estimated amount', render: row => money(row.estimatedAmount) }, { key: 'actualAmount', label: 'Approved actual amount', render: row => row.actualAmount == null ? '—' : money(row.actualAmount) }, { key: 'dueDate', label: 'Due Date', render: row => formatDate(row.dueDate, locale) }, { key: 'status', label: 'Status', render: row => <StatusBadge status={row.status} /> },
+        { key: 'actions', label: 'Actions', render: row => editable && row.status === 'PROPOSED' && <div className="flex gap-2">{operator && <Button size="sm" variant="secondary" onClick={() => open('charge', { ...row, dueDate: row.dueDate?.slice(0, 10) || '' }, row)}>{t('Edit')}</Button>}{finance && <Button size="sm" onClick={() => open('review', { status: 'APPROVED', actualAmount: row.estimatedAmount }, row)}>{t('Review')}</Button>}</div> },
+      ]} /><div className="card p-4 text-sm text-zinc-400">{t('Approved cost')}: {money(job.financials.approvedCost)} · {t('Billed gross profit')}: {money(job.financials.grossProfit)}</div></div>}
+      {tab === 'documents' && <div className="space-y-4">{editable && operator && <Button onClick={() => open('document', { type: 'OTHER', required: 'no', customerVisible: 'yes' })}>{t('Add document checklist')}</Button>}<DataTable rows={job.documents} columns={[
+        { key: 'title', label: 'Document title', render: row => <>{t(row.title)}{row.required && <span className="text-brand-400"> *</span>}<p className="text-xs text-zinc-500">{t('Internal only')}</p></> }, { key: 'type', label: 'Document type', render: row => t(row.type) }, { key: 'status', label: 'Status', render: row => <StatusBadge status={row.status} /> }, { key: 'expiresAt', label: 'Expiry date', render: row => formatDate(row.expiresAt, locale) },
+        { key: 'actions', label: 'Actions', render: row => <div className="flex gap-2 flex-wrap">{row.filename && <Button size="sm" variant="secondary" disabled={action.busy} onClick={() => action.run(() => downloadDocument(`${base}/documents/${row.id}/file`, row.originalName))}>{t('Download')}</Button>}{editable && operator && <Button size="sm" variant="secondary" onClick={() => open('upload', {}, row)}>{t('Upload')}</Button>}{editable && finance && row.status === 'UPLOADED' && <Button size="sm" disabled={action.busy} onClick={() => action.run(() => api.post(`${base}/documents/${row.id}/verify`))}>{t('Verify')}</Button>}</div> },
+      ]} /></div>}
+      {tab === 'finance' && <div className="space-y-5">{editable && finance && <Button onClick={() => open('invoice', { taxAmount: 0 })} disabled={Number(job.financials.unbilled) <= 0}>{t('Generate invoice')}</Button>}<DataTable rows={job.invoices} columns={[
+        { key: 'invoiceNumber', label: 'Invoice #' }, { key: 'totalAmount', label: 'Total', render: row => money(row.totalAmount) }, { key: 'balance', label: 'Outstanding balance', render: row => money(row.balance) }, { key: 'dueDate', label: 'Due Date', render: row => formatDate(row.dueDate, locale) }, { key: 'status', label: 'Status', render: row => <StatusBadge status={row.status} /> }, { key: 'actions', label: 'Actions', render: row => <div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => action.run(() => printJobInvoice(row, job, { t, locale, language }))}>{t('Print')}</Button>{editable && finance && Number(row.balance) > 0 && <Button size="sm" onClick={() => open('payment', { direction: 'RECEIVABLE', invoiceId: row.id, amount: row.balance, reference: '', method: 'BANK_TRANSFER', isAdvance: 'no' })}>{t('Receive payment')}</Button>}</div> },
+      ]} /><h3 className="font-medium text-zinc-200">{t('Vendor settlement')}</h3>{costSettlement('VENDOR')}<h3 className="font-medium text-zinc-200">{t('Internal expense settlement')}</h3>{costSettlement('INTERNAL')}<h3 className="font-medium text-zinc-200">{t('Payment history')}</h3><DataTable rows={job.payments} columns={[{ key: 'paidAt', label: 'Paid Date', render: row => formatDate(row.paidAt, locale, true) }, { key: 'direction', label: 'Direction', render: row => t(row.direction) }, { key: 'reference', label: 'Payment reference' }, { key: 'paidTo', label: 'Payment recipient' }, { key: 'notes', label: 'Notes' }, { key: 'amount', label: 'Amount', render: row => money(row.amount) }, { key: 'method', label: 'Payment method', render: row => t(row.method) }, { key: 'isAdvance', label: 'Advance payment', render: row => t(row.isAdvance ? 'Yes' : 'No') }]} /></div>}
+      {tab === 'operations' && <div className="space-y-4"><p className="text-sm text-zinc-400">{t('Record warehouse movements, customs references, claims and insurance. Values here do not create charges automatically.')}</p>{editable && operator && <Button onClick={() => open('operation', { kind: 'WAREHOUSE', status: 'IN', quantity: 1 })}>{t('Record handling')}</Button>}<DataTable rows={job.operations} columns={[
+        { key: 'kind', label: 'Operation type', render: row => t(row.kind) }, { key: 'reference', label: 'Reference' }, { key: 'location', label: 'Location' }, { key: 'party', label: 'Agent / insurer' }, { key: 'quantity', label: 'Packages' }, { key: 'amount', label: 'Declared amount', render: row => row.amount == null ? '—' : money(row.amount) }, { key: 'eventDate', label: 'Event date', render: row => formatDate(row.eventDate, locale) }, { key: 'status', label: 'Status', render: row => t(row.status) }, { key: 'actions', label: 'Actions', render: row => editable && finance && row.kind !== 'WAREHOUSE' && <Button size="sm" variant="secondary" onClick={() => open('operationStatus', { status: row.status, notes: row.notes || '' }, row)}>{t('Update status')}</Button> },
+      ]} /></div>}
+      {tab === 'activity' && <DataTable rows={job.activity || []} columns={[{ key: 'createdAt', label: 'Date', render: row => formatDate(row.createdAt, locale, true) }, { key: 'action', label: 'Action', render: row => t(row.action) }, { key: 'user', label: 'User', render: row => row.user?.name || '—' }, { key: 'metadata', label: 'Details', render: row => <code className="text-xs break-all">{JSON.stringify(row.metadata)}</code> }]} />}
+      {job.notes && <div className="card p-4 text-sm text-zinc-400 whitespace-pre-wrap">{job.notes}</div>}
+      {dialog && <ModalForm title={titles[dialog.type]} onClose={() => setDialog(null)} onSubmit={submit} submitLabel={dialog.type === 'close' ? 'Close job order' : 'Save'}><Fields fields={formFields()} values={form} onChange={change} />{dialog.type === 'upload' && <label className="block text-sm text-zinc-300">{t('PDF or image, maximum 5 MB')}<input className="input-field mt-2" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" required onChange={event => setFile(event.target.files[0])} /></label>}{dialog.type === 'close' && <p className="text-sm text-zinc-400">{t('Close only after all legs, required documents, warehouse cargo, claims, container returns and payments are complete.')}</p>}{dialog.type === 'invoice' && <p className="text-sm text-zinc-400">{t('All approved unbilled revenue will be included. Enter applicable tax as an amount.')}: {money(job.financials.unbilled)}</p>}</ModalForm>}
+    </>}</ResourceState>
+  </div>;
+}
