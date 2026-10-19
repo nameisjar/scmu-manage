@@ -10,12 +10,7 @@ const origin = process.env.SCMU_API_URL || 'http://127.0.0.1:5000';
 assert.ok(['127.0.0.1', 'localhost'].includes(new URL(origin).hostname), 'Only the local demo API is supported');
 const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
 const marker = randomUUID(); const created = { jobs: [], quotations: [] }; let admin;
-async function request(route, token, body, method = body ? 'POST' : 'GET', expected) {
-  const response = await fetch(`${origin}/api${route}`, { method, headers: { ...(token && { Authorization: `Bearer ${token}` }), ...(!(body instanceof FormData) && { 'Content-Type': 'application/json' }) }, body: body && (body instanceof FormData ? body : JSON.stringify(body)), signal: AbortSignal.timeout(20000) });
-  const data = await response.json();
-  assert.ok(expected ? response.status === expected : response.ok, `${method} ${route}: ${response.status} ${JSON.stringify(data)}`);
-  return data;
-}
+const request = require('./director-test-request.cjs')(origin);
 const login = (email, password) => request('/auth/login', null, { email, password });
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6GWQAAAAASUVORK5CYII=', 'base64');
 function upload(bytes = png, field = 'file', mime = 'image/png') { const data = new FormData(); data.append(field, new Blob([bytes], { type: mime }), 'test.png'); return data; }
@@ -87,6 +82,7 @@ async function main() {
   console.log('PASS: internal JPT quotation, manual acceptance, job, shipment/POD, costs, invoice, concurrent partial payments, documents, warehouse/claim/container settlement and closing.');
 }
 async function cleanup() {
+  await request.cleanup(prisma);
   const documents = await prisma.jobDocument.findMany({ where: { jobId: { in: created.jobs } } });
   const pods = await prisma.pOD.findMany({ where: { shipment: { jobId: { in: created.jobs } } } });
   for (const doc of documents) if (doc.filename) await fs.unlink(path.join(__dirname, '../backend/uploads/job-documents', path.basename(doc.filename))).catch(() => {});

@@ -2,7 +2,7 @@ import { Fields } from '../../components/jpt/Workspace';
 import { transportFormFields, changeTransport } from '../../components/jpt/transport.mjs';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { PageHeader, Button, FormField } from '../../components/common';
 
@@ -55,6 +55,7 @@ export default function CreateShipment() {
     setLoading(true);
     setError('');
     try {
+      if (form.transportSource === 'EXTERNAL') { navigate('/jobs'); return; }
       const { data } = await api.post('/shipments', {
         ...form,
         shipperCompanyId: undefined,
@@ -72,6 +73,7 @@ export default function CreateShipment() {
     <div className="max-w-3xl animate-fade-in">
       <PageHeader title={tr("Create Shipment")} subtitle={tr("Schedule and dispatch a new freight trip")} />
       {error && <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{tr(error)}</div>}
+      {form.transportSource === 'EXTERNAL' && <p className="mb-4 rounded-lg border border-brand-500/30 p-4 text-sm text-brand-200">{tr('Book external transport from a job order for director approval')} <Link to="/jobs" className="underline">{tr('Job orders')}</Link></p>}
 
       <form onSubmit={handleSubmit} className="card p-6 space-y-5">
         <div className="grid grid-cols-2 gap-4">

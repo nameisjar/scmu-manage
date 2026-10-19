@@ -48,4 +48,13 @@ async function costFields(tx, jobId, body, current = {}) {
   }
   return { costSource, costCategory, shipmentId, vendorId };
 }
-module.exports = { transportFields, costFields, COST_CATEGORIES };
+async function transportChange(tx, current, body) {
+  const assignment = await transportFields(tx, { ...current, ...body });
+  if (current.jobId) {
+    const charges = await tx.jobCharge.findMany({ where: { shipmentId: current.id, kind: 'COST', status: { not: 'REJECTED' } } });
+    fail(charges.every(charge => charge.costSource === (assignment.transportSource === 'INTERNAL' ? 'INTERNAL' : 'VENDOR') && (!charge.vendorId || charge.vendorId === assignment.carrierId)), 'Update linked costs before changing the transport source or vendor', 409);
+  }
+  const { decimal, text, date } = require('./jpt');
+  return { ...assignment, ...(body.freightAmount !== undefined && { freightAmount: body.freightAmount === '' || body.freightAmount === null ? null : decimal(body.freightAmount).toNumber() }), ...(body.expectedDelivery !== undefined && { expectedDelivery: date(body.expectedDelivery, true) }), ...(body.notes !== undefined && { notes: text(body.notes, 'Notes', 2000, true) }), ...(body.status === 'CANCELLED' && { status: 'CANCELLED' }) };
+}
+module.exports = { transportFields, costFields, transportChange, COST_CATEGORIES };

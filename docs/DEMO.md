@@ -19,7 +19,7 @@ Log, database, secret demo dan identitas proses berada di `.demo/` yang diabaika
 
 | Peran | Email | Password |
 | --- | --- | --- |
-| Super Admin | admin@scmu.local | Admin@1234 |
+| Direktur (Super Admin) | admin@scmu.local | Admin@1234 |
 | Admin | operasional@scmu.local | Ops@1234 |
 
 Password yang telah diganti tidak direset oleh seed. Email dan identitas di atas hanya
@@ -27,8 +27,9 @@ untuk demo lokal. Akun dengan peran lama selain dua peran internal tidak bisa lo
 Akun staf lama yang masih diperlukan sebagai pelaku riwayat disimpan nonaktif;
 akun pelanggan dihapus. Token lama juga ditolak melalui API dan Socket.IO.
 
-Super Admin mengelola akun, peran dan status aktif pengguna, serta profil perusahaan SCMU.
-Admin mengelola operasional, dokumen, biaya, invoice, pembayaran dan laporan. Admin tidak
+Direktur (Super Admin) mengelola akun, peran dan status aktif pengguna, profil perusahaan,
+serta keputusan persetujuan. Admin menyiapkan operasional, dokumen dan pengajuan biaya,
+invoice serta pembayaran; kemudian mencatat realisasi yang sudah diotorisasi. Admin tidak
 dapat membuka pengelolaan akun atau mengubah profil perusahaan SCMU. Super Admin tidak
 dapat menonaktifkan/menurunkan perannya sendiri; minimal satu Super Admin aktif dipertahankan.
 
@@ -37,7 +38,8 @@ dapat menonaktifkan/menurunkan perannya sendiri; minimal satu Super Admin aktif 
 1. Buka http://localhost:5173. Login dan pilih Bahasa Indonesia atau English.
 2. **Perusahaan** memuat identitas SCMU dan mitra angkutan/broker/penerima, tanpa master pelanggan.
    Transaksi baru otomatis memakai identitas SCMU; tidak ada pilihan pelanggan.
-3. **Penawaran komersial**: buat draf, isi harga jual dan estimasi biaya, cetak, tandai terkirim,
+3. **Penawaran komersial**: buat draf, isi harga jual dan estimasi biaya, ajukan ke direktur,
+   lalu setelah disetujui cetak/tandai terkirim,
    lalu catat konfirmasi yang diterima Admin. Revisi menghasilkan draf baru.
 4. Konversi penawaran diterima menjadi job. Membuka konversi yang sama tidak menggandakan job.
 5. **Job order** → `SCMU-JOB-DEMO-001`: Surabaya–Merauke, 10 koli, 1.200 kg, 6,5 CBM,
@@ -49,8 +51,10 @@ dapat menonaktifkan/menurunkan perannya sendiri; minimal satu Super Admin aktif 
    sebelum persetujuan; biaya internal dicatat tanpa vendor.
 7. **Dokumen**: unggah PDF/JPEG/PNG/WebP maksimal 5 MB, unduh, kemudian verifikasi.
    Semua dokumen bersifat internal. Penggantian file membatalkan verifikasi sebelumnya.
-8. **Invoice & pembayaran**: buat invoice dari pendapatan disetujui yang belum ditagihkan,
-   isi pajak sebagai nilai transaksi, catat penerimaan dan pembayaran vendor secara parsial.
+8. **Invoice & pembayaran**: buat draf invoice dari pendapatan disetujui, isi pajak,
+   lalu ajukan invoice kepada direktur. Setelah disetujui, Admin dapat mencatat penerimaan.
+   Pengeluaran vendor/internal diajukan terlebih dahulu, disetujui direktur, kemudian Admin
+   mencatat realisasi dan referensi bukti di detail pengajuan. Persetujuan belum mengubah saldo kas.
    Pembayaran biaya internal memiliki tabel terpisah dengan penerima, metode dan referensi.
    Pembayaran tidak boleh melebihi saldo; referensi unik mencegah pencatatan ganda.
 9. **Penanganan**: catat barang masuk/keluar per lokasi, referensi kepabeanan, klaim dan
@@ -58,10 +62,11 @@ dapat menonaktifkan/menurunkan perannya sendiri; minimal satu Super Admin aktif 
 10. **Keuangan job** menyajikan laba, piutang/utang vendor, biaya internal disetujui/dibayar/sisa,
     umur tagihan, peringatan, dan CSV per mata uang. Laba memperhitungkan seluruh biaya
     disetujui; biaya internal tidak masuk umur utang vendor.
-11. **Tutup job** memeriksa tahapan terkirim, dokumen wajib terverifikasi dan belum kedaluwarsa,
+11. **Ajukan penutupan job** kepada direktur setelah pemeriksaan tahapan terkirim, dokumen wajib terverifikasi dan belum kedaluwarsa,
     biaya selesai ditinjau, pelunasan termasuk biaya internal, stok kosong, klaim selesai dan kontainer kembali.
 12. **RFQ vendor**: Admin mencatat penawaran dengan memilih vendor. Beberapa vendor dapat
-    dicatat sebelum pemenang ditetapkan. Vendor tidak memiliki akun login.
+    dicatat sebelum pilihan vendor diajukan kepada direktur. Pemesanan angkutan vendor baru
+    melalui job juga memerlukan persetujuan. Vendor tidak memiliki akun login.
 13. Login Admin dan pastikan menu Pengguna tidak tersedia; login Super Admin untuk mengelola akun.
 
 ### Armada sendiri dan jasa vendor
@@ -86,15 +91,81 @@ Identitas, harga dan estimasi perjalanan adalah simulasi. Pelacakan dicatat oper
 GPS, carrier, CEISA/INSW, bank, e-Faktur dan pengiriman pesan belum terhubung ke layanan eksternal.
 Keuangan job merupakan buku pembantu operasional, bukan buku besar akuntansi lengkap.
 
+## Packing list masuk dan keluar
+
+Buka **Job order → pilih job → Packing list**. Admin menyiapkan dokumen; direktur memutuskan
+pengajuan finalisasi kepala/packing list keluar dan selisih penerimaan.
+
+- Saat membuat job, pilih jenis **SCMU sebagai pengirim** atau **SCMU sebagai penerima**.
+  Daftar job dapat disaring berdasarkan jenis. Jenis dikunci setelah dokumen packing atau
+  tahap angkutan dibuat. Konversi penawaran menjadi job juga menyediakan pilihan ini.
+- **SCMU sebagai penerima:** pilih **Unggah packing list asal**, pilih file pengirim PDF/gambar
+  maksimal 5 MB, lalu isi nomor/tanggal asal, pengirim, rute job dan ringkasan koli/berat/volume.
+  File dapat dibuka sebagai acuan. Simpan dan ulangi untuk dokumen berikutnya. Dokumen asli
+  beserta metadata disimpan sekaligus; kegagalan tidak meninggalkan file atau catatan baru.
+- Pilih **Buat kepala packing list**, lalu centang packing list asal yang masuk kelompok
+  pengiriman ini. Tidak ada dokumen yang dipilih otomatis. Satu job penerimaan memiliki satu
+  kepala yang memuat banyak dokumen asal. Total koli, berat dan volume dihitung dari pilihan.
+  Contoh: PL-A-001 10 koli + PL-A-002 15 koli + PL-A-003 5 koli menjadi satu kepala 30 koli.
+- Barang belum tiba dapat dicatat PENDING. Buka masing-masing dokumen untuk mengisi hasil
+  penerimaan, tanggal, petugas dan jumlah aktual. Selisih memerlukan status serta catatan.
+  Admin memfinalisasi dokumen tanpa selisih. Dokumen berselisih diajukan kepada direktur.
+  Setelah seluruh dokumen job tercakup dan selesai, ajukan kepala untuk difinalisasi direktur.
+  Kepala final mengunci anggota dan unggahan baru. Draf kepala boleh dihapus tanpa menghapus
+  packing list asal. Kepala dapat dicetak/simpan PDF; draf memiliki penanda verifikasi belum selesai.
+- **SCMU sebagai pengirim:** pilih **Buat packing list keluar**, isi penerima dan rincian barang
+  yang diberangkatkan. Tidak memerlukan kepala penerimaan atau gabungan seluruh packing list.
+- Berat bersih/kotor adalah **total per baris**. Jika dimensi diisi, ketiga ukuran dalam cm berlaku
+  untuk setiap koli berukuran sama: volume baris = panjang × lebar × tinggi × jumlah koli / 1.000.000.
+  Jika dimensi kosong, volume dapat diisi manual. Server menghitung total dan menolak berat kotor
+  yang lebih kecil dari berat bersih.
+- Simpan sebagai draf untuk melanjutkan pengisian. Packing list keluar final dapat dicetak atau
+  disimpan sebagai PDF A4 melalui dialog cetak browser, dengan logo SCMU, identitas pihak,
+  rincian barang, total, referensi dan tanda tangan. Job penerimaan mencetak kepala gabungan
+  serta mengunduh dokumen asal masing-masing; tidak menerbitkan ulang packing list SCMU.
+- Finalisasi mengunci data dan memverifikasi daftar dokumen job yang terkait. Unggah/verifikasi
+  umum tidak dapat melewati alur packing list. Draf dapat dihapus; catatan final tetap tersimpan.
+  Penutupan job menolak catatan packing list yang masih draf. Perubahan bersamaan memeriksa
+  versi data agar perubahan pengguna lain tidak tertimpa. Job yang hanya menerima tidak wajib
+  memiliki armada/tahap angkutan; kepala final menyelesaikan penerimaan. Jika tahap angkutan
+  dicatat, seluruh tahap tetap wajib selesai. Pemeriksaan keuangan dan operasional lain tetap berlaku.
+
+Contoh **SCMU-JOB-TERIMA-002** memuat `KPL-SCMU-DEMO-GABUNG-001` dengan tiga packing list
+pengirim Surabaya, total **30 koli, 3.600 kg dan 19,5 CBM**. **SCMU-JOB-ARMADA-001** memuat
+`PL-SCMU-DEMO-001`, diterbitkan SCMU langsung. Pengelompokan tidak melakukan alokasi atau
+pengurangan stok otomatis. Master pelanggan dan portal tetap tidak digunakan. Pengiriman
+file ke pihak luar dilakukan manual setelah PDF disimpan.
+
+## Demo persetujuan direktur
+
+1. Login **Admin** (`operasional@scmu.local`) dan buka **SCMU-JOB-SETUJU-001**.
+   Tersedia pengajuan contoh BBM Rp750.000 dan packing list keluar dari Admin.
+2. Buka **Persetujuan direktur**. Admin dapat melihat ringkasan dan riwayat, tetapi tidak
+   memiliki tombol keputusan. Pengajuan milik sendiri dapat ditarik dengan alasan.
+3. Login **Direktur** (`admin@scmu.local`), buka menu yang sama, pilih pengajuan, lalu **Periksa pengajuan**.
+   Pilih disetujui, dikembalikan untuk revisi, atau ditolak. Pengembalian/penolakan wajib disertai catatan.
+4. Pengajuan yang dikembalikan diperbaiki Admin pada data asal lalu diajukan kembali.
+   Direktur tidak dapat memutuskan pengajuan yang dibuat akunnya sendiri.
+5. Untuk pengeluaran, Admin mengajukan pembayaran atas biaya disetujui. Setelah direktur
+   mengotorisasi, buka detail pengajuan dan pilih **Catat realisasi pembayaran**, isi waktu
+   serta referensi bukti. Jumlah dan penerima mengikuti persetujuan; otorisasi hanya digunakan sekali.
+
+Dokumen/transaksi historis dipertahankan tanpa mengubah status yang sudah final. Semua
+pengeluaran baru memerlukan persetujuan karena batas nominal belum ditetapkan.
+Transfer uang dan pengiriman file ke pihak luar tetap dilakukan manual. Batas unggahan lama
+30 per jam dan 5 MB per file tetap berlaku.
+
 ## Pemeriksaan
 
 ```powershell
 node scripts/test-internal-access.cjs
+node scripts/test-director.cjs
 node scripts/test-demo-indonesia.cjs
 node scripts/smoke-demo.cjs
 node scripts/workflow-demo.cjs
 node scripts/jpt-workflow.cjs
 node scripts/test-own-fleet.cjs
+node scripts/test-packing.cjs
 node scripts/test-modal-browser.mjs
 ```
 

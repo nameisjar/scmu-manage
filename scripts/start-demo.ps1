@@ -135,7 +135,7 @@ try {
     }
     Write-Host "SCMU demo ready: http://localhost:$FrontendPort" -ForegroundColor Green
     Write-Host "API health: http://localhost:$ApiPort/health"
-    Write-Host 'Admin: admin@scmu.local / Admin@1234'
+    Write-Host 'Direktur (Super Admin): admin@scmu.local / Admin@1234'
     Write-Host 'Admin operasional: operasional@scmu.local / Ops@1234'
 } finally {
     foreach ($key in $savedEnvironment.Keys) {

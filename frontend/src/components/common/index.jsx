@@ -34,6 +34,7 @@ export function StatusBadge({ status }) {
     ACCEPTED: 'badge-green',
     REJECTED: 'badge-red',
     WITHDRAWN: 'badge-zinc',
+    RETURNED: 'badge-brand',
     BOOKED: 'badge-blue', IN_PROGRESS: 'badge-brand', CLOSED: 'badge-green',
     SENT: 'badge-blue', PROPOSED: 'badge-brand', UPLOADED: 'badge-blue', VERIFIED: 'badge-green',
   };

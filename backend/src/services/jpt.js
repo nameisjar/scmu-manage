@@ -98,7 +98,9 @@ const jobInclude = {
   customer: true, quotation: { include: { items: true } },
   shipments: { orderBy: { sequence: 'asc' }, include: { carrier: { select: { id: true, name: true } }, vehicle: true, driver: true, trackingEvents: { orderBy: { recordedAt: 'desc' } }, pods: true } },
   charges: { orderBy: { createdAt: 'asc' }, include: { vendor: { select: { id: true, name: true } }, invoiceItem: true, payments: true } },
-  documents: { orderBy: { createdAt: 'asc' } }, invoices: { include: { items: true, payments: true }, orderBy: { createdAt: 'desc' } },
+  documents: { orderBy: { createdAt: 'asc' }, include: { packingList: { select: { id: true, direction: true, status: true, recordNumber: true } } } }, invoices: { include: { items: true, payments: true }, orderBy: { createdAt: 'desc' } },
+  packingLists: { select: { id: true, status: true, direction: true, recordNumber: true } },
+  packingHeader: { select: { id: true, status: true, headerNumber: true } },
   payments: { orderBy: { paidAt: 'desc' } }, operations: { orderBy: { eventDate: 'desc' } },
 };
 function invoiceBalance(invoice) {
@@ -111,7 +113,8 @@ function financials(job) {
   const revenue = sum(active.filter(charge => charge.kind === 'REVENUE' && charge.status === 'APPROVED'), charge => charge.actualAmount ?? charge.estimatedAmount);
   const estimatedCost = sum(active.filter(charge => charge.kind === 'COST'), charge => charge.estimatedAmount);
   const approvedCost = sum(active.filter(charge => charge.kind === 'COST' && charge.status === 'APPROVED'), charge => charge.actualAmount);
-  const invoices = (job.invoices || []).filter(invoice => invoice.status !== 'CANCELLED');
+  const invoices = (job.invoices || []).filter(invoice => !['CANCELLED','PENDING','SUBMITTED','UNDER_REVIEW'].includes(invoice.status));
+  const draftInvoiceIds = new Set((job.invoices || []).filter(invoice => ['PENDING','SUBMITTED','UNDER_REVIEW'].includes(invoice.status)).map(invoice => invoice.id));
   const billed = sum(invoices, invoice => invoice.freightAmount);
   const receivable = sum(invoices, invoice => invoiceBalance(invoice));
   const approved = active.filter(charge => charge.kind === 'COST' && charge.status === 'APPROVED');
@@ -122,7 +125,7 @@ function financials(job) {
   return Object.fromEntries(Object.entries({ revenue, estimatedCost, approvedCost, estimatedProfit: revenue.minus(estimatedCost),
     grossProfit: billed.minus(approvedCost), billed, receivable, payable: vendorCost.minus(paidVendor),
     internalCost, vendorCost, internalExpensePaid, internalOutstanding: internalCost.minus(internalExpensePaid),
-    unbilled: sum(active.filter(charge => charge.kind === 'REVENUE' && charge.status === 'APPROVED' && !charge.invoiceItem), charge => charge.actualAmount ?? charge.estimatedAmount),
+    unbilled: sum(active.filter(charge => charge.kind === 'REVENUE' && charge.status === 'APPROVED' && (!charge.invoiceItem || draftInvoiceIds.has(charge.invoiceItem.invoiceId))), charge => charge.actualAmount ?? charge.estimatedAmount),
   }).map(([key, value]) => [key, value.toFixed(2)]));
 }
 function alerts(job, now = new Date()) {
@@ -145,15 +148,22 @@ function presentJob(job) {
 }
 async function syncJob(tx, jobId) {
   if (!jobId) return;
-  const job = await tx.jobOrder.findUnique({ where: { id: jobId }, include: { shipments: true } });
+  const job = await tx.jobOrder.findUnique({ where: { id: jobId }, include: { shipments: true, packingLists: true, packingHeader: true } });
   if (!job || ['CLOSED', 'CANCELLED'].includes(job.status)) return;
   const active = job.shipments.filter(shipment => shipment.status !== 'CANCELLED');
-  const status = active.length && active.every(shipment => FINAL_SHIPMENTS.includes(shipment.status)) ? 'DELIVERED'
+  const receiptDone = job.packingHeader?.status === 'FINAL' && job.packingLists.filter(record => record.direction === 'INBOUND').every(record => record.status === 'FINAL');
+  const status = job.jobType === 'RECEIVER' ? (receiptDone && active.every(shipment => FINAL_SHIPMENTS.includes(shipment.status)) ? 'DELIVERED' : job.packingLists.length || active.length ? 'IN_PROGRESS' : 'BOOKED')
+    : active.length && active.every(shipment => FINAL_SHIPMENTS.includes(shipment.status)) ? 'DELIVERED'
     : active.some(shipment => shipment.status !== 'PENDING' && shipment.status !== 'ASSIGNED') ? 'IN_PROGRESS' : 'BOOKED';
   if (job.status !== status) await tx.jobOrder.update({ where: { id: jobId }, data: { status } });
 }
-async function closeJob(tx, job) {
-  fail(job.status === 'DELIVERED', 'Complete all transport legs before closing this job', 409);
+function checkJobClosure(job) {
+  if (job.jobType === 'RECEIVER') {
+    fail(job.packingHeader?.status === 'FINAL', 'Finalize the receiving packing header before closing', 409);
+    fail(!['CLOSED', 'CANCELLED'].includes(job.status), 'This job is already closed or cancelled', 409);
+    fail((job.shipments || []).filter(shipment => shipment.status !== 'CANCELLED').every(shipment => FINAL_SHIPMENTS.includes(shipment.status)), 'Complete all transport legs before closing this job', 409);
+  } else fail(job.status === 'DELIVERED', 'Complete all transport legs before closing this job', 409);
+  fail((job.packingLists || []).every(record => record.status === 'FINAL'), 'Finalize packing records before closing', 409);
   fail(job.documents.filter(document => document.required).every(document => document.status === 'VERIFIED'), 'Verify all required documents before closing', 409);
   fail(job.documents.filter(document => document.required).every(document => !document.expiresAt || document.expiresAt >= new Date()), 'Renew expired required documents before closing', 409);
   fail(job.charges.every(charge => charge.status !== 'PROPOSED'), 'Review pending charges before closing', 409);
@@ -164,7 +174,11 @@ async function closeJob(tx, job) {
   const stock = (job.operations || []).filter(operation => operation.kind === 'WAREHOUSE').reduce((total, operation) => total + (operation.status === 'IN' ? operation.quantity : -operation.quantity), 0);
   fail(stock === 0, 'Release warehouse cargo before closing', 409);
   fail(!job.operations.some(operation => operation.kind === 'CLAIM' && !['SETTLED', 'REJECTED'].includes(operation.status)), 'Resolve open claims before closing', 409);
+  fail(!job.invoices.some(invoice => ['PENDING','SUBMITTED','UNDER_REVIEW'].includes(invoice.status)), 'Approve draft invoices before closing', 409);
+}
+async function closeJob(tx, job) {
+  checkJobClosure(job);
   return tx.jobOrder.update({ where: { id: job.id }, data: { status: 'CLOSED' } });
 }
 
-module.exports = { STAFF, OPERATORS, FINANCE, CURRENCIES, FINAL_SHIPMENTS, DOCUMENT_TYPES, fail, route, number, text, decimal, integer, date, choice, money, sum, transaction, audit, customer, vendor, mutableJob, cargo, quotationItems, quotationTotals, jobInclude, invoiceBalance, financials, alerts, presentJob, syncJob, closeJob };
+module.exports = { STAFF, OPERATORS, FINANCE, CURRENCIES, FINAL_SHIPMENTS, DOCUMENT_TYPES, fail, route, number, text, decimal, integer, date, choice, money, sum, transaction, audit, customer, vendor, mutableJob, cargo, quotationItems, quotationTotals, jobInclude, invoiceBalance, financials, alerts, presentJob, syncJob, checkJobClosure, closeJob };

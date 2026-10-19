@@ -80,6 +80,9 @@ router.put('/:id', authenticate, authorize('SUPER_ADMIN', 'ADMIN'), async (req, 
     const existing = await prisma.invoice.findUnique({ where: { id: req.params.id }, include: { payments: true } });
     fail(existing, 'Invoice not found', 404);
     fail(!existing.jobId, 'Manage this invoice and its payments from the job order', 409);
+    fail(status === undefined || status === 'DISPUTED', 'Submit this action for director approval', 403);
+    fail(status === undefined || !['PAID','CANCELLED'].includes(existing.status), 'Final invoice statuses are locked', 409);
+    fail(paidDate === undefined, 'Submit this action for director approval', 403);
     const invoice = await prisma.invoice.update({
       where: { id: req.params.id },
       data: {

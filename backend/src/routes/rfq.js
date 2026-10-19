@@ -6,7 +6,7 @@ const { validate, createRFQRules, submitQuoteRules, paginationRules } = require(
 
 const router = express.Router();
 const prisma = require('../prisma');
-const { choice, CURRENCIES, transaction, vendor, fail, audit } = require('../services/jpt');
+const { choice, CURRENCIES, transaction, vendor, fail, audit, route } = require('../services/jpt');
 
 function generateRFQNumber() {
   return `RFQ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -135,29 +135,8 @@ router.post(
   }
 );
 
-// POST /api/rfq/:id/award/:quoteId
-router.post(
-  '/:id/award/:quoteId',
-  authenticate,
-  authorize('SUPER_ADMIN', 'ADMIN'),
-  async (req, res, next) => {
-    try {
-      await transaction(async tx => {
-        const rfq = await tx.rFQ.findUnique({ where: { id: req.params.id } });
-        fail(rfq, 'RFQ not found', 404);
-        if (rfq.status === 'AWARDED' && rfq.awardedQuoteId === req.params.quoteId) return;
-        fail(['OPEN','QUOTED'].includes(rfq.status), 'RFQ cannot be awarded at this stage', 409);
-        const quote = await tx.quote.findUnique({ where: { id: req.params.quoteId } });
-        fail(quote && quote.rfqId === rfq.id && quote.status === 'PENDING', 'Invalid quote for this RFQ', 422);
-        await tx.rFQ.update({ where: { id: rfq.id }, data: { status: 'AWARDED', awardedQuoteId: quote.id } });
-        await tx.quote.update({ where: { id: quote.id }, data: { status: 'ACCEPTED' } });
-        await tx.quote.updateMany({ where: { rfqId: rfq.id, id: { not: quote.id } }, data: { status: 'REJECTED' } });
-        await audit(tx, req.user, 'VENDOR_QUOTE_AWARDED', 'RFQ', rfq.id, { quoteId: quote.id });
-      });
-      res.json({ message: 'Quote awarded successfully' });
-    } catch (err) { next(err); }
-  }
-);
+// Awards are executed atomically from the director approval queue.
+router.post('/:id/award/:quoteId', authenticate, route(async () => fail(false, 'Submit this action for director approval', 403)));
 
 // PUT /api/rfq/:id — whitelist fields
 router.put(
@@ -167,6 +146,8 @@ router.put(
   async (req, res, next) => {
     try {
       const { title, originCity, destCity, weight, loadingDate, deliveryDate, notes } = req.body;
+      const current = await prisma.rFQ.findUnique({ where: { id: req.params.id } });
+      fail(current && !['AWARDED','CANCELLED'].includes(current.status), 'Awarded or cancelled RFQs are locked', 409);
       const rfq = await prisma.rFQ.update({
         where: { id: req.params.id },
         data: {
@@ -191,6 +172,8 @@ router.delete(
   authorize('SUPER_ADMIN', 'ADMIN'),
   async (req, res, next) => {
     try {
+      const current = await prisma.rFQ.findUnique({ where: { id: req.params.id } });
+      fail(current && current.status !== 'AWARDED', 'Awarded RFQs are locked', 409);
       await prisma.rFQ.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
       res.json({ message: 'RFQ cancelled' });
     } catch (err) { next(err); }

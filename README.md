@@ -25,7 +25,7 @@ script demo memasok konfigurasi proses sendiri. Database demo hanya menerima kon
 
 - Aplikasi: **http://localhost:5173**
 - API: http://localhost:5000/health
-- Admin: `admin@scmu.local` / `Admin@1234`
+- Direktur (Super Admin): `admin@scmu.local` / `Admin@1234`
 - Admin operasional: `operasional@scmu.local` / `Ops@1234`
 
 Email `@scmu.local` adalah akun contoh lokal. Seed dapat dijalankan ulang tanpa menggandakan
@@ -35,7 +35,9 @@ invoice dan pembayaran parsial dalam rupiah. Seluruh contoh bawaan menggunakan r
 
 Alur demo internal JPT: Admin → penawaran jual → job order → tahapan angkutan →
 dokumen/POD → invoice → penerimaan pembayaran dan pelunasan vendor → tutup job.
-Sistem hanya dapat diakses Super Admin dan Admin. Master/akun/portal pelanggan dihapus; transaksi dipertahankan atas nama SCMU.
+Sistem hanya dapat diakses Direktur (Super Admin) dan Admin. Admin menyiapkan pekerjaan dan pengajuan;
+direktur memutuskan persetujuan dokumen final, harga, biaya, vendor, pengeluaran dan penutupan job.
+Master/akun/portal pelanggan dihapus; transaksi dipertahankan atas nama SCMU.
 Panduan rinci tersedia di [docs/DEMO.md](docs/DEMO.md).
 
 Untuk menghentikan layanan tanpa menghapus data:
@@ -48,16 +50,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\stop-demo.ps1
 
 | Modul | Kemampuan |
 | --- | --- |
-| Penawaran komersial | Draf/revisi, harga jual/beli, konfirmasi oleh Admin, cetak, konversi menjadi job |
+| Penawaran komersial | Draf/revisi, harga jual/beli disetujui direktur sebelum dikirim, konfirmasi oleh Admin, cetak, konversi menjadi job |
 | Job order | Satu pekerjaan dengan beberapa tahap darat, laut, udara atau kereta |
 | Operasional | Tracking manual, surat jalan, nomor booking/BL/AWB, kontainer dan pengembalian kosong |
 | Biaya dan laba | Pengajuan biaya vendor, persetujuan nilai aktual, estimasi dan laba tertagih |
 | Dokumen/POD | Daftar wajib, unggah, verifikasi, akses internal |
+| Packing list | Job pengirim/penerima; satu kepala penerimaan untuk banyak packing list asal, hasil penerimaan per dokumen, total otomatis, finalisasi dan cetak/PDF |
 | Keuangan | Invoice per job, pajak berupa nilai input, pembayaran parsial, uang muka, piutang/utang dan umur tagihan |
 | Penanganan | Register gudang masuk/keluar, kepabeanan, klaim, asuransi |
 | Modul transportasi | RFQ vendor, armada, pengemudi, perusahaan dan rute |
 | Laporan | Dashboard, ketepatan waktu dari data aktual, laporan per mata uang, CSV dan cetak |
 | Pengguna | Super Admin untuk pengelolaan akun; Admin untuk operasional |
+| Persetujuan direktur | Setujui/kembalikan/tolak dengan riwayat keputusan; data berubah wajib diajukan ulang; pengeluaran diotorisasi sebelum realisasi pembayaran |
 
 Integrasi GPS, carrier, kepabeanan, bank dan pajak elektronik belum terhubung.
 Register operasional dan buku pembantu job tersedia untuk demo; bukan buku besar akuntansi.

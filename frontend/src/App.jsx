@@ -24,6 +24,7 @@ import QuotationDetail from './pages/JPT/QuotationDetail';
 import Jobs from './pages/JPT/Jobs';
 import JobDetail from './pages/JPT/JobDetail';
 import Finance from './pages/JPT/Finance';
+import DirectorApprovals from './components/jpt/DirectorApproval';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="jobs" element={<Jobs />} />
         <Route path="jobs/:id" element={<JobDetail />} />
         <Route path="job-finance" element={<Finance />} />
+        <Route path="approvals" element={<DirectorApprovals />} />
         <Route path="rfq" element={<RFQList />} />
         <Route path="rfq/new" element={<CreateRFQ />} />
         <Route path="rfq/:id" element={<RFQDetail />} />

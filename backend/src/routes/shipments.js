@@ -120,9 +120,12 @@ router.post(
         ewayBillNo, lrNumber, quantity, notes,
       } = req.body;
 
-      const shipment = await transaction(async tx => tx.shipment.create({
+      const shipment = await transaction(async tx => {
+        const assignment = await transportFields(tx, req.body);
+        fail(assignment.transportSource === 'INTERNAL', 'Book external transport from a job order for director approval', 403);
+        return tx.shipment.create({
         data: {
-          shipperCompanyId: (await internalCompany(tx, shipperCompanyId)).id, ...(await transportFields(tx, req.body)),
+          shipperCompanyId: (await internalCompany(tx, shipperCompanyId)).id, ...assignment,
           currency: choice(req.body.currency || 'IDR', CURRENCIES, 'Currency'),
           goodsTypeId: goodsTypeId || null, routeId: routeId || null,
           originCity, originState, destCity, destState,
@@ -137,7 +140,7 @@ router.post(
           shipmentNumber: generateShipmentNumber(),
           createdById: req.user.id,
         },
-      }));
+      }); });
       res.status(201).json(shipment);
     } catch (err) { next(err); }
   }
@@ -273,8 +276,9 @@ router.put(
       const current = await tx.shipment.findUnique({ where: { id: req.params.id } });
       fail(current, 'Shipment not found', 404);
       if (current.jobId) await mutableJob(tx, current.jobId);
-      const changingTransport = ['transportSource', 'mode', 'carrierId', 'quoteId', 'vehicleId', 'driverId'].some(key => req.body[key] !== undefined);
+      const changingTransport = ['transportSource', 'mode', 'carrierId', 'quoteId', 'vehicleId', 'driverId'].some(key => req.body[key] !== undefined && (req.body[key] || null) !== (current[key] || null));
       const assignment = changingTransport ? await transportFields(tx, { ...current, ...req.body }) : {};
+      fail(!(changingTransport && (current.transportSource === 'EXTERNAL' || assignment.transportSource === 'EXTERNAL')) && !(freightAmount !== undefined && Number(freightAmount) !== Number(current.freightAmount)) && !(status === 'CANCELLED' && current.transportSource === 'EXTERNAL'), 'Submit transport changes for director approval', 403);
       if (changingTransport && current.jobId) {
         const charges = await tx.jobCharge.findMany({ where: { shipmentId: current.id, kind: 'COST', status: { not: 'REJECTED' } } });
         fail(charges.every(charge => charge.costSource === (assignment.transportSource === 'INTERNAL' ? 'INTERNAL' : 'VENDOR') && (!charge.vendorId || charge.vendorId === assignment.carrierId)), 'Update linked costs before changing the transport source or vendor', 409);

@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },  { to: '/sales-quotations', label: 'Commercial quotations', icon: ClipboardList, staff: true },
   { to: '/jobs', label: 'Job orders', icon: Package, staff: true },
   { to: '/job-finance', label: 'Job finance', icon: Receipt, staff: true },
+  { to: '/approvals', label: 'Director approvals', icon: UserCheck },
   { to: '/rfq', label: 'RFQ Indenting', icon: ClipboardList },
   { to: '/shipments', label: 'Shipments', icon: Package },
   { to: '/fleet', label: 'Fleet', icon: TruckIcon },

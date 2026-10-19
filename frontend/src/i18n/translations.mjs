@@ -345,7 +345,7 @@ const enums = {
   SUBMITTED: ['Submitted', 'Diajukan'], UNDER_REVIEW: ['Under review', 'Ditinjau'],
   APPROVED: ['Approved', 'Disetujui'], DISPUTED: ['Disputed', 'Disengketakan'], PAID: ['Paid', 'Lunas'],
   ACCEPTED: ['Accepted', 'Diterima'], REJECTED: ['Rejected', 'Ditolak'], WITHDRAWN: ['Withdrawn', 'Ditarik'],
-  SUPER_ADMIN: ['Super admin', 'Admin utama'], ADMIN: ['Admin', 'Admin'], MANAGER: ['Manager', 'Manajer'],
+  SUPER_ADMIN: ['Director (Super Admin)', 'Direktur (Super Admin)'], ADMIN: ['Admin', 'Admin'], MANAGER: ['Manager', 'Manajer'],
   OPERATOR: ['Operator', 'Operator'], VIEWER: ['Viewer', 'Pengamat'], TRANSPORTER: ['Transporter', 'Pengangkut'],
   SHIPPER: ['Shipper', 'Pengirim'], BROKER: ['Broker', 'Perantara'], CONSIGNEE: ['Consignee', 'Penerima'],
   BOTH: ['Shipper & transporter', 'Pengirim & pengangkut'],

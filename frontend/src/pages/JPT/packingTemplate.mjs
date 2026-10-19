@@ -1,0 +1,26 @@
+import { formatDate } from '../../utils/format.mjs';
+const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+export function createPackingListHtml(record, { t = value => value, locale = 'id-ID', language = 'id', logoUrl = '/scmu-logo.svg' } = {}) {
+  if (record.direction !== 'OUTBOUND' || record.status !== 'FINAL') throw new Error('Only finalized outgoing packing lists can be printed');
+  const e = escape; const label = key => e(t(key));
+  const quantity = value => Number(value || 0).toLocaleString(locale, { maximumFractionDigits: 4 });
+  const party = (title, name, address) => `<div class="party"><b>${label(title)}</b><p>${e(name)}<br>${e(address || '')}</p></div>`;
+  return `<!doctype html><html lang="${e(language)}"><head><meta charset="utf-8"><title>${e(record.recordNumber)}</title><style>
+    @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font:11px Arial,sans-serif;color:#18181b;margin:0}header{display:flex;align-items:center;gap:14px;border-bottom:3px solid #2563eb;padding-bottom:14px}header img{width:64px;height:64px;object-fit:contain}h1{font-size:22px;margin:0 0 6px}p{white-space:pre-line;line-height:1.5;margin:5px 0}.meta,.parties{display:flex;justify-content:space-between;gap:20px;margin:16px 0}.party{width:50%;border:1px solid #ddd;padding:10px}.meta>div{flex:1}table{width:100%;border-collapse:collapse;margin:16px 0;font-size:10px}.items{table-layout:fixed}thead{display:table-header-group}th,td{border:1px solid #ccc;padding:7px 4px;vertical-align:top;overflow-wrap:anywhere}th{background:#eff6ff;text-align:left;overflow-wrap:normal;word-break:normal}tr{break-inside:avoid}td.num,th.num{text-align:right}.totals{margin-left:auto;width:55%;break-inside:avoid}.totals td{font-size:11px}.signatures{display:flex;justify-content:space-around;margin-top:40px;break-inside:avoid}.signature{width:40%;text-align:center}.line{border-bottom:1px solid #777;height:55px}.notes{break-inside:avoid}.muted{color:#52525b}.no-print{margin:12px 0;padding:12px;background:#eff6ff}@media print{.no-print{display:none}}
+  </style></head><body>
+  <header><img src="${e(logoUrl)}" alt="SCMU"><div><h1>${e(record.companyName)}</h1><p>${e(record.companyAddress || '')}</p><p>${e([record.companyPhone, record.companyEmail].filter(Boolean).join(' · '))}</p></div></header>
+  <h2>${label('Outgoing packing list')}</h2><div class="meta"><div><b>${e(record.recordNumber)}</b><p>${label('Document date')}: ${e(formatDate(record.documentDate, locale))}<br>${label('Job order')}: ${e(record.job?.jobNumber || '')}<br>${label('Reference')}: ${e(record.reference || '—')}</p></div><div><p>${label('Route')}: ${e(record.originCity)} → ${e(record.destCity)}</p></div></div>
+  <div class="parties">${party('Sender', record.senderName, record.senderAddress)}${party('Recipient', record.recipientName, record.recipientAddress)}</div>
+  <table class="items"><colgroup>${[4.5,29.5,13,7,7,5,12,12,10].map(width => `<col style="width:${width}%">`).join('')}</colgroup><thead><tr><th colspan="9">${e(record.recordNumber)} · ${e(record.originCity)} → ${e(record.destCity)}</th></tr><tr>${['No.', 'Cargo description', 'Package marks', 'Quantity', 'Unit', 'Packages', 'Net weight (kg)', 'Gross weight (kg)', 'Volume (CBM)'].map(key => `<th>${label(key)}</th>`).join('')}</tr></thead><tbody>${record.items.map(item => `<tr><td>${e(item.sequence)}</td><td>${e(item.description)}${item.lengthCm ? `<p class="muted">${e(`${quantity(item.lengthCm)} × ${quantity(item.widthCm)} × ${quantity(item.heightCm)} cm`)} ${label('per package')}</p>` : ''}</td><td>${e(item.marks || '')}</td><td class="num">${e(quantity(item.quantity))}</td><td>${e(item.unit)}</td><td class="num">${e(item.packages)}</td><td class="num">${e(quantity(item.netWeightKg))}</td><td class="num">${e(quantity(item.grossWeightKg))}</td><td class="num">${e(quantity(item.volumeCbm))}</td></tr>`).join('')}</tbody></table>
+  <table class="totals"><tbody>${[['Packages', record.packages], ['Net weight (kg)', record.netWeightKg], ['Gross weight (kg)', record.grossWeightKg], ['Volume (CBM)', record.volumeCbm]].map(([key, value]) => `<tr><td>${label(key)}</td><td class="num"><b>${e(quantity(value))}</b></td></tr>`).join('')}</tbody></table>
+  ${record.sources?.length ? `<p>${label('Selected source documents')}: ${record.sources.map(link => e(`${link.source.externalNumber} (${link.source.senderName})`)).join('; ')}</p>` : ''}
+  ${record.notes ? `<p class="notes"><b>${label('Notes')}</b><br>${e(record.notes)}</p>` : ''}
+  <div class="signatures"><div class="signature">${label('Prepared by')}<div class="line"></div><p>${e(record.companyName)}</p></div><div class="signature">${label('Received by')}<div class="line"></div><p>${e(record.recipientName)}</p></div></div>
+  </body></html>`;
+}
+export function printPackingList(record, options) {
+  const html = createPackingListHtml(record, { ...options, logoUrl: new URL('/scmu-logo.svg', window.location.origin).href });
+  const popup = window.open('', '_blank'); if (!popup) throw Error('Please allow pop-ups to print');
+  popup.document.write(html); popup.document.close();
+  Promise.all(Array.from(popup.document.images).map(img => img.decode?.().catch(() => {}) ?? Promise.resolve())).then(() => { popup.focus(); popup.print(); });
+}

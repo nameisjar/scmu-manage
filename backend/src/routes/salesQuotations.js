@@ -5,9 +5,9 @@ const { STAFF, FINANCE, fail, route, number, text, date, choice, cargo, quotatio
 const router = express.Router();
 router.use(authenticate, authorize(...STAFF));
 const include = { customer: { select: { id: true, name: true, email: true, address: true, npwp: true } }, items: true, job: { select: { id: true, jobNumber: true } } };
-const present = quotation => ({ ...quotation, canEdit: quotation.status === 'DRAFT', status: ['DRAFT', 'SENT'].includes(quotation.status) && quotation.validUntil < new Date() ? 'EXPIRED' : quotation.status, totals: quotationTotals(quotation) });
+const present = quotation => ({ ...quotation, canEdit: ['DRAFT','APPROVED'].includes(quotation.status), status: ['DRAFT', 'APPROVED', 'SENT'].includes(quotation.status) && quotation.validUntil < new Date() ? 'EXPIRED' : quotation.status, totals: quotationTotals(quotation) });
 
-async function createJobFromQuotation(tx, quotation, user) {
+async function createJobFromQuotation(tx, quotation, user, jobType = 'SENDER') {
   const existing = await tx.jobOrder.findUnique({ where: { quotationId: quotation.id } });
   if (existing) return existing;
   fail(quotation.status === 'ACCEPTED', 'Accept the customer quotation before creating a job', 409);
@@ -18,11 +18,12 @@ async function createJobFromQuotation(tx, quotation, user) {
     return item.buyRate.gt(0) ? [revenue, { kind: 'COST', description: item.description, estimatedAmount: item.quantity.mul(item.buyRate).toDecimalPlaces(2), status: 'PROPOSED', createdById: user.id }] : [revenue];
   });
   const job = await tx.jobOrder.create({ data: {
-    title, originCity, destCity, serviceType, cargoDescription, packages, weightKg, volumeCbm, currency, plannedPickup, expectedDelivery,
+    title, originCity, destCity, serviceType, cargoDescription, packages, weightKg, volumeCbm, currency, plannedPickup, expectedDelivery, jobType,
+    ...(jobType === 'RECEIVER' ? { recipientName: company.name, deliveryAddress: company.address } : {}),
     jobNumber: number('JOB'), customerId: quotation.customerId, quotationId: quotation.id, createdById: user.id,
     charges: { create: charges }, documents: { create: [
-      { title: 'Packing list', type: 'PACKING_LIST', required: true },
-      { title: 'Proof of delivery', type: 'POD', required: true },
+      { title: 'Packing list', type: 'PACKING_LIST', required: true, customerVisible: false },
+      ...(jobType === 'SENDER' ? [{ title: 'Proof of delivery', type: 'POD', required: true, customerVisible: false }] : []),
     ] },
   } });
   await audit(tx, user, 'JOB_CREATED_FROM_QUOTATION', 'JobOrder', job.id, { quotationNumber: quotation.quotationNumber });
@@ -30,7 +31,7 @@ async function createJobFromQuotation(tx, quotation, user) {
 }
 
 router.get('/', route(async (req, res) => {
-  const where = { ...(req.query.status && { status: choice(req.query.status, ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']) }),
+  const where = { ...(req.query.status && { status: choice(req.query.status, ['DRAFT', 'APPROVED', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']) }),
     ...(req.query.search && { OR: ['quotationNumber', 'title'].map(field => ({ [field]: { contains: String(req.query.search).slice(0, 200), mode: 'insensitive' } })) }) };
   const data = await prisma.salesQuotation.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: 200 });
   res.json({ data: data.map(present) });
@@ -58,13 +59,13 @@ router.put('/:id', authorize(...FINANCE), route(async (req, res) => {
   const result = await transaction(async tx => {
     const quotation = await tx.salesQuotation.findUnique({ where: { id: req.params.id } });
     fail(quotation, 'Customer quotation not found', 404);
-    fail(quotation.status === 'DRAFT', 'Only draft quotations can be edited', 409);
+    fail(['DRAFT','APPROVED'].includes(quotation.status), 'Only draft quotations can be edited', 409);
     const data = cargo(req.body);
     const company = await customer(tx, req.body.customerId);
     const validUntil = date(req.body.validUntil);
     fail(validUntil > new Date(), 'Quotation validity must be in the future');
     await tx.salesQuotationItem.deleteMany({ where: { quotationId: quotation.id } });
-    const updated = await tx.salesQuotation.update({ where: { id: quotation.id }, data: { ...data, customerId: company.id, validUntil,
+    const updated = await tx.salesQuotation.update({ where: { id: quotation.id }, data: { ...data, status: 'DRAFT', customerId: company.id, validUntil,
       terms: text(req.body.terms, 'Terms', 3000, true), items: { create: quotationItems(req.body.items) } }, include });
     await audit(tx, req.user, 'QUOTATION_UPDATED', 'SalesQuotation', quotation.id);
     return updated;
@@ -76,7 +77,7 @@ router.post('/:id/status', authorize(...FINANCE), route(async (req, res) => {
   const result = await transaction(async tx => {
     const quotation = await tx.salesQuotation.findUnique({ where: { id: req.params.id }, include: { job: true, items: true } });
     fail(quotation, 'Customer quotation not found', 404);
-    fail(!quotation.job && (status === 'SENT' ? quotation.status === 'DRAFT' : quotation.status === 'SENT'), 'Quotation status cannot be changed at this stage', 409);
+    fail(!quotation.job && (status === 'SENT' ? quotation.status === 'APPROVED' : quotation.status === 'SENT'), 'Director approval is required before sending a quotation', 403);
     fail(quotation.validUntil > new Date(), 'This quotation has expired', 409);
     if (status === 'SENT') fail(quotation.items.length > 0 && money(quotationTotals(quotation).revenue).gt(0), 'Add a positive sales price before sending this quotation');
     const updated = await tx.salesQuotation.update({ where: { id: quotation.id }, data: { status }, include });
@@ -102,7 +103,7 @@ router.post('/:id/job', authorize(...FINANCE), route(async (req, res) => {
   const job = await transaction(async tx => {
     const quotation = await tx.salesQuotation.findUnique({ where: { id: req.params.id }, include: { items: true } });
     fail(quotation, 'Customer quotation not found', 404);
-    return createJobFromQuotation(tx, quotation, req.user);
+    return createJobFromQuotation(tx, quotation, req.user, choice(req.body.jobType || 'SENDER', ['SENDER', 'RECEIVER'], 'Job type'));
   });
   res.json(job);
 }));

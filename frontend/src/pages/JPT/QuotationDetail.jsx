@@ -5,14 +5,16 @@ import { useLanguage } from '../../i18n/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/client';
 import { PageHeader, StatCard } from '../../components/common';
-import { Button, DataTable, Notice, ResourceState, StatusBadge, useAction, useResource } from '../../components/jpt/Workspace';
+import { Button, DataTable, Fields, ModalForm, Notice, ResourceState, StatusBadge, jobTypeField, useAction, useResource } from '../../components/jpt/Workspace';
 import { formatDate, formatMoney } from '../../utils/format.mjs';
 import { printQuotation } from '../../utils/commercialPrint';
+import { ApprovalSubmit } from '../../components/jpt/DirectorApproval';
 
 export default function QuotationDetail() {
   const { id } = useParams(); const navigate = useNavigate(); const { t, locale, language } = useLanguage(); const { canManage } = useAuth();
   const resource = useResource(`/sales-quotations/${id}`); const action = useAction(resource.reload); const q = resource.data;
   const [editing, setEditing] = useState(false);
+  const [jobForm, setJobForm] = useState(null);
   return <div className="space-y-5 animate-fade-in">
     <Link to="/sales-quotations" className="text-sm text-zinc-400">← {t('Commercial quotations')}</Link>
     <Notice message={action.error} />
@@ -32,14 +34,16 @@ export default function QuotationDetail() {
         <Button variant="secondary" onClick={() => printQuotation(q, { t, locale, language })}>{t('Print quotation')}</Button>
         {canManage() && <>
           {q.canEdit && <Button variant="secondary" onClick={() => setEditing(true)}>{t('Edit quotation')}</Button>}
-          {q.status === 'DRAFT' && <Button disabled={action.busy} onClick={() => action.run(() => api.post(`/sales-quotations/${id}/status`, { status: 'SENT' }))}>{t('Mark as sent')}</Button>}
+          {q.status === 'DRAFT' && <ApprovalSubmit action="SALES_QUOTATION_APPROVE" entityId={q.id} onChange={resource.reload} />}
+          {q.status === 'APPROVED' && <Button disabled={action.busy} onClick={() => action.run(() => api.post(`/sales-quotations/${id}/status`, { status: 'SENT' }))}>{t('Mark as sent')}</Button>}
           {q.status === 'SENT' && <><Button disabled={action.busy} onClick={() => action.run(() => api.post(`/sales-quotations/${id}/status`, { status: 'ACCEPTED' }))}>{t('Record quotation acceptance')}</Button><Button variant="danger" disabled={action.busy} onClick={() => action.run(() => api.post(`/sales-quotations/${id}/status`, { status: 'REJECTED' }))}>{t('Reject')}</Button></>}
-          {q.status === 'ACCEPTED' && !q.job && <Button disabled={action.busy} onClick={() => action.run(async () => { const response = await api.post(`/sales-quotations/${id}/job`); navigate(`/jobs/${response.data.id}`); })}>{t('Create job order')}</Button>}
+          {q.status === 'ACCEPTED' && !q.job && <Button disabled={action.busy} onClick={() => setJobForm({ jobType: 'SENDER' })}>{t('Create job order')}</Button>}
           <Button variant="secondary" disabled={action.busy} onClick={() => action.run(async () => { const response = await api.post(`/sales-quotations/${id}/revise`); navigate(`/sales-quotations/${response.data.id}`); })}>{t('Create revision')}</Button>
         </>}
         {q.job && <Link className="text-sm text-brand-400 self-center" to={`/jobs/${q.job.id}`}>{q.job.jobNumber} →</Link>}
       </div>
       {editing && <QuotationEditor quotation={q} onClose={() => setEditing(false)} onSaved={resource.reload} />}
+      {jobForm && <ModalForm title="Create job order" onClose={() => setJobForm(null)} onSubmit={async () => { const response = await api.post(`/sales-quotations/${id}/job`, jobForm); navigate(`/jobs/${response.data.id}`); }}><Fields fields={[jobTypeField(t)]} values={jobForm} onChange={(key, value) => setJobForm(previous => ({ ...previous, [key]: value }))} /></ModalForm>}
     </>}</ResourceState>
   </div>;
 }

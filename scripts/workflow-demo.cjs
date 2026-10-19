@@ -10,17 +10,7 @@ const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
 const created = {};
 const marker = `SCMU workflow check ${randomUUID()}`;
 
-async function request(path, token, body, method = body ? 'POST' : 'GET') {
-  const response = await fetch(`${apiUrl}/api${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) },
-    body: body && JSON.stringify(body), signal: AbortSignal.timeout(15000),
-  });
-  const data = await response.json();
-  assert.ok(response.ok, `${method} ${path}: HTTP ${response.status} ${JSON.stringify(data)}`);
-  return data;
-}
-
+const request = require('./director-test-request.cjs')(apiUrl);
 async function main() {
   const admin = await request('/auth/login', null, { email: 'admin@scmu.local', password: 'Admin@1234' });
   const operator = await request('/auth/login', null, { email: 'operasional@scmu.local', password: 'Ops@1234' });
@@ -54,7 +44,8 @@ async function main() {
   const validation = await invalidQuote.json();
   assert.ok(validation.errors.every(error => error.path === 'amount'));
 
-  created.shipment = await request('/shipments', admin.token, { ...journey, transportSource: 'EXTERNAL', carrierId: vendor.id, quoteId: created.quote.id, freightAmount: 35000, notes: marker });
+  created.job = await request('/jobs', operator.token, { title: marker, originCity: journey.originCity, destCity: journey.destCity, cargoDescription: marker, packages: 1, currency: 'IDR' });
+  created.shipment = await request(`/jobs/${created.job.id}/shipments`, admin.token, { ...journey, transportSource: 'EXTERNAL', carrierId: vendor.id, quoteId: created.quote.id, notes: marker });
   assert.equal(created.shipment.quoteId, created.quote.id);
   await request(`/shipments/${created.shipment.id}/tracking`, admin.token, {
     eventType: 'DELIVERED', location: route.destCity, notes: marker,
@@ -64,23 +55,25 @@ async function main() {
   assert.ok(delivered.actualDelivery);
   assert.equal(delivered.trackingEvents.length, 1);
 
-  created.invoice = await request('/invoices', admin.token, {
-    shipmentId: created.shipment.id, companyId: shipper.id, freightAmount: 35000,
-    gstAmount: 0, invoiceDate: new Date().toISOString(), notes: marker,
-  });
+  const charge = await request(`/jobs/${created.job.id}/charges`, operator.token, { kind: 'REVENUE', description: marker, estimatedAmount: 35000 });
+  await request(`/jobs/${created.job.id}/charges/${charge.id}/review`, admin.token, { status: 'APPROVED' });
+  created.invoice = await request(`/jobs/${created.job.id}/invoices`, admin.token, { taxAmount: 0, notes: marker });
   assert.equal(created.invoice.totalAmount, 35000);
-  const paid = await request(`/invoices/${created.invoice.id}`, admin.token, { status: 'PAID', paidDate: new Date().toISOString() }, 'PUT');
-  assert.equal(paid.status, 'PAID');
-  console.log('PASS: create RFQ, transporter quote, award, create shipment, tracking delivery, create invoice, mark paid.');
+  await request(`/jobs/${created.job.id}/payments`, operator.token, { direction: 'RECEIVABLE', invoiceId: created.invoice.id, amount: 35000, reference: marker });
+  assert.equal((await request(`/jobs/${created.job.id}`, operator.token)).invoices[0].status, 'PAID');
+  console.log('PASS: RFQ and director vendor selection; job and approved vendor booking; tracking; approved revenue/invoice; receipt recording.');
 }
 
 async function cleanup() {
+  await request.cleanup(prisma);
   // Only delete records returned by this invocation; preserve the seeded demo.
+  if (created.job) { await prisma.jobPayment.deleteMany({ where: { jobId: created.job.id } }); await prisma.invoiceItem.deleteMany({ where: { invoice: { jobId: created.job.id } } }); }
   if (created.invoice) await prisma.invoice.delete({ where: { id: created.invoice.id } });
   if (created.shipment) {
     await prisma.trackingEvent.deleteMany({ where: { shipmentId: created.shipment.id } });
     await prisma.shipment.delete({ where: { id: created.shipment.id } });
   }
+  if (created.job) { await prisma.jobDocument.deleteMany({ where: { jobId: created.job.id } }); await prisma.jobCharge.deleteMany({ where: { jobId: created.job.id } }); await prisma.jobOrder.delete({ where: { id: created.job.id } }); await prisma.activityLog.deleteMany({ where: { entity: 'JobOrder', entityId: created.job.id } }); }
   if (created.rfq) {
     await prisma.rFQ.update({ where: { id: created.rfq.id }, data: { awardedQuoteId: null } });
     await prisma.quote.deleteMany({ where: { rfqId: created.rfq.id } });

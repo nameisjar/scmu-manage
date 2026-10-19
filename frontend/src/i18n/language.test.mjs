@@ -40,7 +40,7 @@ test('both languages translate UI, enum labels, and dynamic counts', () => {
   assert.equal(translate('en', 'Sign in'), 'Sign in');
   assert.equal(translate('id', 'IN_TRANSIT'), 'Dalam perjalanan');
   assert.equal(translate('en', 'IN_TRANSIT'), 'In transit');
-  assert.equal(translate('id', 'SUPER ADMIN'), 'Admin utama');
+  assert.equal(translate('id', 'SUPER ADMIN'), 'Direktur (Super Admin)');
   assert.equal(translate('id', 'Page {page} of {total}', { page: 2, total: 5 }), 'Halaman 2 dari 5');
   assert.equal(translate('en', 'Page {page} of {total}', { page: 2, total: 5 }), 'Page 2 of 5');
   assert.equal(translate('id', 'SCMU Logistics - SHP-123'), 'SCMU Logistics - SHP-123');

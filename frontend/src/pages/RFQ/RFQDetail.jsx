@@ -6,6 +6,7 @@ import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { StatusBadge, Button, Modal, FormField, Spinner } from '../../components/common';
 import { Banknote, MapPin, Package, Calendar, Truck, ChevronLeft } from 'lucide-react';
+import { ApprovalSubmit } from '../../components/jpt/DirectorApproval';
 
 export default function RFQDetail() {
   const { t: tr, locale } = useLanguage();
@@ -37,12 +38,6 @@ export default function RFQDetail() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const awardQuote = async (quoteId) => {
-    if (!confirm(tr('Award this quote? All other quotes will be rejected.'))) return;
-    await api.post(`/rfq/${id}/award/${quoteId}`);
-    load();
   };
 
   if (loading) return <Spinner />;
@@ -114,7 +109,7 @@ export default function RFQDetail() {
                   <StatusBadge status={q.status} />
                 </div>
                 {canManage() && rfq.status !== 'AWARDED' && rfq.status !== 'CANCELLED' && (
-                  <Button size="sm" onClick={() => awardQuote(q.id)}>{tr("Award")}</Button>
+                  <ApprovalSubmit action="VENDOR_AWARD" entityId={q.id} label="Submit vendor selection" onChange={load} />
                 )}
               </div>
             ))}

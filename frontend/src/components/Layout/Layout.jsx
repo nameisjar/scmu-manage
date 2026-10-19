@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import { ApprovalToast } from '../jpt/DirectorApproval';
 
 export default function Layout() {
   return (
@@ -7,6 +8,7 @@ export default function Layout() {
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
         <div className="p-6 max-w-screen-2xl mx-auto">
+          <ApprovalToast />
           <Outlet />
         </div>
       </main>

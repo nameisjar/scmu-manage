@@ -7,13 +7,7 @@ assert.ok(['localhost', '127.0.0.1'].includes(new URL(api).hostname));
 assert.ok(['localhost', '127.0.0.1'].includes(new URL(db).hostname) && new URL(db).pathname === '/scmu_demo');
 const prisma = new PrismaClient({ datasources: { db: { url: db } } });
 const marker = `Fleet test ${randomUUID()}`; let jobId; const extraShipments = [];
-async function request(path, token, body, method = body ? 'POST' : 'GET', expected) {
-  const response = await fetch(`${api}/api${path}`, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body && JSON.stringify(body), signal: AbortSignal.timeout(15000) });
-  const result = await response.json();
-  if (expected) assert.equal(response.status, expected, `${method} ${path}: ${JSON.stringify(result)}`);
-  else assert.ok(response.ok, `${method} ${path}: ${response.status} ${JSON.stringify(result)}`);
-  return result;
-}
+const request = require('./director-test-request.cjs')(api);
 async function main() {
   const admin = (await request('/auth/login', null, { email: 'operasional@scmu.local', password: 'Ops@1234' })).token;
   const superAdmin = (await request('/auth/login', null, { email: 'admin@scmu.local', password: 'Admin@1234' })).token;
@@ -52,7 +46,8 @@ async function main() {
   await request(`${base}/payments`, admin, internalPayment);
   await request(`${base}/payments`, admin, internalPayment, 'POST', 409);
   await request(`${base}/payments`, admin, { ...internalPayment, amount: 500001, reference: 'OVERPAY' }, 'POST', 409);
-  const competing = await Promise.all([1, 2].map(index => fetch(`${api}/api${base}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin}` }, body: JSON.stringify({ ...internalPayment, amount: 500000, reference: `RACE-${index}` }) })));
+  const racePayment = await request.authorizePayment(job.id, { ...internalPayment, amount: 500000, reference: 'RACE-AUTH' });
+  const competing = await Promise.all([1, 2].map(index => fetch(`${api}/api${base}/payments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin}` }, body: JSON.stringify(racePayment) })));
   assert.deepEqual(competing.map(response => response.status).sort(), [201, 409]);
   await request(`${base}/payments`, admin, { direction: 'PAYABLE', chargeId: freight.id, amount: 8000000, reference: 'KAPAL-001' });
   await request(`${base}/payments`, admin, { direction: 'RECEIVABLE', invoiceId: invoice.id, amount: 15000000, reference: 'AR-001' });
@@ -78,6 +73,7 @@ async function main() {
   console.log('PASS: SCMU/vendor ownership, mixed road-sea-road job, internal cost categories, separate settlements/aging, recipient, duplicate/overpayment/concurrent guards, documents and closing.');
 }
 async function cleanup() {
+  await request.cleanup(prisma);
   if (jobId) {
     const documents = await prisma.jobDocument.findMany({ where: { jobId } });
     const files = require('../backend/src/services/jobFiles');

@@ -62,6 +62,8 @@ async function main() {
   }
   await require('./seed-jpt')(prisma, admin);
   await require('./seed-own-fleet')(prisma, admin);
-  console.log('SCMU Merauke demo ready. Admin: admin@scmu.local / Admin@1234; Admin: operasional@scmu.local / Ops@1234');
+  await require('./seed-packing')(prisma, admin);
+  await require('./seed-director')(prisma, admin);
+  console.log('SCMU Merauke demo ready. Director: admin@scmu.local / Admin@1234; Admin: operasional@scmu.local / Ops@1234');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => prisma.$disconnect());

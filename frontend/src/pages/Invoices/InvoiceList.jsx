@@ -6,6 +6,7 @@ import api from '../../api/client';
 import { PageHeader, Button, StatusBadge, SearchInput, EmptyState, Spinner } from '../../components/common';
 import { PrintButton } from './InvoicePrint';
 import { Link } from 'react-router-dom';
+import { ApprovalSubmit } from '../../components/jpt/DirectorApproval';
 
 const STATUSES = ['', 'PENDING', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'DISPUTED', 'PAID', 'CANCELLED'];
 
@@ -72,15 +73,15 @@ export default function InvoiceList() {
                     <td className="px-4 py-3">
                       <div className="flex flex-col gap-1">
                         <PrintButton invoice={inv} />
-                        {!inv.jobId && inv.status === 'PENDING' && (
+                        {!inv.jobId && ['PENDING','DISPUTED'].includes(inv.status) && (
                           <div className="flex gap-1">
-                            <button onClick={() => updateStatus(inv.id, 'APPROVED')} className="text-xs text-green-400 hover:text-green-300">{tr("Approve")}</button>
+                            <ApprovalSubmit action="INVOICE_ISSUE" entityId={inv.id} onChange={load} />
                             <span className="text-zinc-700">·</span>
                             <button onClick={() => updateStatus(inv.id, 'DISPUTED')} className="text-xs text-red-400 hover:text-red-300">{tr("Dispute")}</button>
                           </div>
                         )}
                         {!inv.jobId && inv.status === 'APPROVED' && (
-                          <button onClick={() => updateStatus(inv.id, 'PAID')} className="text-xs text-brand-400 hover:text-brand-300">{tr("Mark Paid")}</button>
+                          <ApprovalSubmit action="LEGACY_INVOICE_SETTLE" entityId={inv.id} label="Submit payment confirmation" onChange={load} />
                         )}
                       </div>
                     </td>

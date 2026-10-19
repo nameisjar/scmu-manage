@@ -8,9 +8,9 @@ const databaseUrl = process.env.SCMU_DEMO_DATABASE_URL || 'postgresql://scmu_dem
 const target = new URL(databaseUrl);
 assert.ok(['127.0.0.1', 'localhost'].includes(target.hostname) && target.pathname === '/scmu_demo', 'Only the local demo database is supported');
 const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-const models = ['company', 'route', 'vehicle', 'driver', 'shipment', 'trackingEvent', 'rFQ', 'quote', 'invoice', 'invoiceItem', 'salesQuotation', 'jobOrder', 'jobCharge', 'jobDocument', 'jobPayment'];
+const models = ['company', 'route', 'vehicle', 'driver', 'shipment', 'trackingEvent', 'rFQ', 'quote', 'invoice', 'invoiceItem', 'salesQuotation', 'jobOrder', 'jobCharge', 'jobDocument', 'jobPayment', 'packingList', 'packingListItem', 'packingListSource', 'packingHeader', 'directorApproval'];
 async function snapshot() {
-  return JSON.stringify(await Promise.all(models.map(async model => [model, await prisma[model].findMany({ orderBy: { id: 'asc' } })])));
+  return JSON.stringify(await Promise.all(models.map(async model => [model, await prisma[model].findMany({ orderBy: model === 'packingListSource' ? [{ packingListId: 'asc' }, { sourceId: 'asc' }] : { id: 'asc' } })])));
 }
 async function main() {
   const base = await prisma.shipment.findMany({ where: { shipmentNumber: { in: Array.from({ length: 6 }, (_, i) => `SCMU-SHP-${String(i + 1).padStart(3, '0')}`) } }, include: { route: true, trackingEvents: true } });

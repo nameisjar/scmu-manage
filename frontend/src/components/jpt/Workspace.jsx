@@ -19,7 +19,7 @@ export function useResource(url) {
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [url, version]);
-  return { data, loading, error, reload };
+  return { data, loading, error, reload, update: setData };
 }
 export function useAction(reload) {
   const [busy, setBusy] = useState(false);
@@ -107,3 +107,4 @@ export const cargoFields = customers => [
   { key: 'plannedPickup', label: 'Planned pickup', type: 'datetime-local' }, { key: 'expectedDelivery', label: 'Expected Delivery', type: 'datetime-local' },
 ];
 export const emptyCargo = { title: '', originCity: '', destCity: '', serviceType: 'DOMESTIC', cargoDescription: '', packages: 1, weightKg: 0, volumeCbm: 0, currency: 'IDR', plannedPickup: '', expectedDelivery: '' };
+export const jobTypeField = t => ({ key: 'jobType', label: 'Job type', required: true, options: [{ value: 'SENDER', label: t('SCMU as sender') }, { value: 'RECEIVER', label: t('SCMU as receiver') }] });
