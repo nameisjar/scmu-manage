@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/client';
 import { useLanguage } from '../../i18n/LanguageContext';
-import { Button, DataTable, Fields, ModalForm, Notice, ResourceState, StatusBadge, useAction, useResource } from '../../components/jpt/Workspace';
+import { Button, DataTable, DetailModal, Fields, ModalForm, Notice, ResourceState, StatusBadge, useAction, useResource } from '../../components/jpt/Workspace';
 import { formatDate } from '../../utils/format.mjs';
 import { printPackingList } from './packingTemplate.mjs';
 import PackingHeader from './PackingHeader';
-import { ApprovalSubmit } from '../../components/jpt/DirectorApproval';
+import { requestDirector } from '../../components/jpt/DirectorApproval';
 
 const emptyRecords = [];
 
@@ -29,6 +29,7 @@ export default function PackingLists({ job, onChange }) {
   const open = (type, record) => {
     setFile(null); setFileError(''); setDialog({ type, record });
     if (type === 'edit') setForm({ ...record, documentDate: record.documentDate.slice(0, 10), receivedAt: dateInput(record.receivedAt), sourceIds: record.sources.map(link => link.sourceId) });
+    if (type === 'approval') setForm({ note: '' });
   };
   const create = direction => {
     const now = new Date(); setDialog({ type: 'create', record: null }); setFile(null); setFileError('');
@@ -46,6 +47,7 @@ export default function PackingLists({ job, onChange }) {
     else if (dialog.type === 'edit') response = await api.put(`${base}/${dialog.record.id}`, form);
     else if (dialog.type === 'upload') { const payload = new FormData(); payload.append('file', file); payload.append('version', dialog.record.version); response = await api.post(`${base}/${dialog.record.id}/original`, payload); }
     else if (dialog.type === 'finalize') response = await api.post(`${base}/${dialog.record.id}/finalize`, { version: dialog.record.version });
+    else if (dialog.type === 'approval') await requestDirector(dialog.record.direction === 'OUTBOUND' ? 'PACKING_FINALIZE' : 'PACKING_EXCEPTION', dialog.record.id, { version: dialog.record.version }, form.note);
     else if (dialog.type === 'delete') { await api.delete(`${base}/${dialog.record.id}`, { data: { version: dialog.record.version } }); setSelectedId(null); }
     if (response) {
       const saved = response.data;
@@ -82,7 +84,7 @@ export default function PackingLists({ job, onChange }) {
   const itemFields = [{ key: 'description', label: 'Cargo description', required: true, wide: true, maxLength: 500 }, { key: 'marks', label: 'Package marks' }, { key: 'quantity', label: 'Quantity', type: 'number', min: 0.0001, step: 0.0001, required: true }, { key: 'unit', label: 'Unit', required: true }, { key: 'packages', label: 'Packages', type: 'number', min: 1, step: 1, required: true }, { key: 'netWeightKg', label: 'Row net weight (kg)', type: 'number', min: 0, step: 0.001, required: true }, { key: 'grossWeightKg', label: 'Row gross weight (kg)', type: 'number', min: 0, step: 0.001, required: true }, ...[['lengthCm', 'Length (cm)'], ['widthCm', 'Width (cm)'], ['heightCm', 'Height (cm)']].map(([key, label]) => ({ key, label, type: 'number', min: 0.001, max: 1000000, step: 0.001 })), { key: 'volumeCbm', label: 'Manual volume (CBM)', type: 'number', min: 0, step: 0.0001 }];
   const detail = (label, value) => <div className="min-w-0"><dt className="text-xs text-zinc-500">{t(label)}</dt><dd className="mt-1 break-words whitespace-pre-wrap text-sm text-zinc-200">{value ?? '—'}</dd></div>;
   const summaries = record => [['Packages', record.packages], ['Net weight (kg)', record.netWeightKg], ['Gross weight (kg)', record.grossWeightKg], ['Volume (CBM)', record.volumeCbm]].map(([label, value]) => <span key={label}>{t(label)}: <b>{Number(value || 0).toLocaleString(locale, { maximumFractionDigits: 4 })}</b></span>);
-  return <div className="space-y-5"><Notice message={action.error} />
+  return <div className="space-y-5">
     <p className="text-sm text-zinc-400">{t(job.jobType === 'RECEIVER' ? 'Upload each sender packing list, then group selected documents under one receiving packing header.' : 'Create this packing list directly. No receiving header or combined list of all source documents is required.')}</p>
     {editable && <div className="flex flex-wrap gap-3">{job.jobType === 'RECEIVER' ? job.packingHeader?.status !== 'FINAL' && <Button onClick={() => create('INBOUND')}>{t('Upload original packing list')}</Button> : <Button onClick={() => create('OUTBOUND')}>{t('Create outgoing packing list')}</Button>}</div>}
     <ResourceState resource={resource}><DataTable rows={records} columns={[
@@ -93,19 +95,19 @@ export default function PackingLists({ job, onChange }) {
       { key: 'status', label: 'Status', render: row => <StatusBadge status={row.status} /> }, { key: 'actions', label: 'Actions', render: row => <Button size="sm" variant="secondary" onClick={() => setSelectedId(row.id)}>{t('View')}</Button> },
     ]} /></ResourceState>
     {job.jobType === 'RECEIVER' && <PackingHeader job={job} records={records} onChange={reload} onSelect={setSelectedId} />}
-    {selected && <section className="card p-5 space-y-5" aria-label={t('Packing record details')}>
+    {selected && !dialog && <DetailModal title="Packing record details" onClose={() => setSelectedId(null)} actions={<>
+      {selected.document.filename && <Button size="sm" variant="secondary" onClick={() => action.run(() => download(selected))}>{t('Download original packing list')}</Button>}
+      {selected.direction === 'OUTBOUND' && selected.status === 'FINAL' && <Button size="sm" onClick={() => action.run(() => printPackingList(selected, { t, locale, language }))}>{t('Print / save packing list PDF')}</Button>}
+      {editable && selected.status === 'DRAFT' && <><Button size="sm" variant="secondary" onClick={() => open('edit', selected)}>{t('Edit')}</Button>{selected.direction === 'INBOUND' && <Button size="sm" variant="secondary" onClick={() => open('upload', selected)}>{t('Attach original packing list')}</Button>}<Button size="sm" onClick={() => open(selected.direction === 'OUTBOUND' || selected.receiptStatus === 'DISCREPANCY' ? 'approval' : 'finalize', selected)}>{t(selected.direction === 'OUTBOUND' ? 'Submit packing list' : selected.receiptStatus === 'DISCREPANCY' ? 'Submit receipt discrepancy' : 'Finalize packing record')}</Button><Button size="sm" variant="secondary" onClick={() => open('delete', selected)}>{t('Delete draft')}</Button></>}
+    </>}><section className="space-y-5" aria-label={t('Packing record details')}>
+      <Notice message={action.error} />
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-semibold text-zinc-100">{selected.direction === 'INBOUND' ? selected.externalNumber : selected.recordNumber}</h3><p className="text-sm text-zinc-400">{t(selected.direction === 'INBOUND' ? 'Original packing list' : 'Outgoing packing list')}{selected.header && ` · ${selected.header.headerNumber}`}</p></div><StatusBadge status={selected.status} /></div>
       <dl className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{detail('Original packing list number', selected.externalNumber)}{detail('Document date', formatDate(selected.documentDate, locale))}{detail('Sender', selected.senderName)}{detail('Recipient', selected.recipientName)}{detail('Recipient address', selected.recipientAddress)}{detail('Route', `${selected.originCity} → ${selected.destCity}`)}{detail('Reference', selected.reference)}</dl>
       <div className="flex flex-wrap gap-5 text-sm text-zinc-300">{summaries(selected)}</div>
       {selected.direction === 'INBOUND' ? <><p className="text-sm text-zinc-400">{t('Record receipt for this original packing list. The receiving header groups multiple original documents.')}</p><dl className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{detail('Receipt status', t(selected.receiptStatus === 'PENDING' ? 'Awaiting receipt' : selected.receiptStatus === 'RECEIVED' ? 'Received as declared' : 'Receipt discrepancy'))}{detail('Actual packages', selected.actualPackages)}{detail('Actual weight (kg)', selected.actualWeightKg)}{detail('Actual volume (CBM)', selected.actualVolumeCbm)}{detail('Received at', selected.receivedAt ? formatDate(selected.receivedAt, locale, true) : null)}{detail('Received by', selected.receivedBy)}{detail('Discrepancy notes', selected.discrepancyNotes)}</dl></> : <><DataTable rows={selected.items} columns={[{ key: 'sequence', label: 'No.' }, { key: 'description', label: 'Cargo description' }, { key: 'marks', label: 'Package marks' }, { key: 'quantity', label: 'Quantity' }, { key: 'unit', label: 'Unit' }, { key: 'packages', label: 'Packages' }, { key: 'netWeightKg', label: 'Net weight (kg)' }, { key: 'grossWeightKg', label: 'Gross weight (kg)' }, { key: 'volumeCbm', label: 'Volume (CBM)' }]} /><p className="text-sm text-zinc-400">{t('Selected source documents')}: {selected.sources.length ? selected.sources.map(link => `${link.source.externalNumber} (${link.source.senderName})`).join('; ') : t('Created directly without source documents')}</p></>}
       {selected.notes && <p className="text-sm text-zinc-400 whitespace-pre-wrap">{selected.notes}</p>}
-      <div className="flex flex-wrap gap-2">
-        {selected.document.filename && <Button size="sm" variant="secondary" onClick={() => action.run(() => download(selected))}>{t('Download original packing list')}</Button>}
-        {selected.direction === 'OUTBOUND' && selected.status === 'FINAL' && <Button size="sm" onClick={() => action.run(() => printPackingList(selected, { t, locale, language }))}>{t('Print / save packing list PDF')}</Button>}
-        {editable && selected.status === 'DRAFT' && <><Button size="sm" variant="secondary" onClick={() => open('edit', selected)}>{t('Edit')}</Button>{selected.direction === 'INBOUND' && <Button size="sm" variant="secondary" onClick={() => open('upload', selected)}>{t('Attach original packing list')}</Button>}{selected.direction === 'OUTBOUND' || selected.receiptStatus === 'DISCREPANCY' ? <ApprovalSubmit action={selected.direction === 'OUTBOUND' ? 'PACKING_FINALIZE' : 'PACKING_EXCEPTION'} entityId={selected.id} payload={{ version: selected.version }} label={selected.direction === 'OUTBOUND' ? 'Submit packing list' : 'Submit receipt discrepancy'} onChange={reload} /> : <Button size="sm" onClick={() => open('finalize', selected)}>{t('Finalize packing record')}</Button>}<Button size="sm" variant="secondary" onClick={() => open('delete', selected)}>{t('Delete draft')}</Button></>}
-      </div>
-    </section>}
-    {dialog && <ModalForm width={['create', 'edit'].includes(dialog.type) ? 'max-w-5xl' : 'max-w-xl'} title={dialog.type === 'create' || dialog.type === 'edit' ? (incoming ? 'Original packing list' : 'Outgoing packing list') : dialog.type === 'upload' ? 'Attach original packing list' : dialog.type === 'finalize' ? 'Finalize packing record' : 'Delete draft'} onClose={() => { setDialog(null); setFile(null); }} onSubmit={save} submitLabel={dialog.type === 'finalize' ? 'Finalize packing record' : dialog.type === 'delete' ? 'Delete draft' : creatingIncoming ? 'Save original packing list' : 'Save'}>
+    </section></DetailModal>}
+    {dialog && <ModalForm width={['create', 'edit'].includes(dialog.type) ? 'max-w-5xl' : 'max-w-xl'} title={dialog.type === 'create' || dialog.type === 'edit' ? (incoming ? 'Original packing list' : 'Outgoing packing list') : dialog.type === 'upload' ? 'Attach original packing list' : dialog.type === 'finalize' ? 'Finalize packing record' : dialog.type === 'approval' ? 'Submit for director approval' : 'Delete draft'} onClose={() => { setDialog(null); setFile(null); }} onSubmit={save} submitLabel={dialog.type === 'finalize' ? 'Finalize packing record' : dialog.type === 'delete' ? 'Delete draft' : dialog.type === 'approval' ? 'Submit request' : creatingIncoming ? 'Save original packing list' : 'Save'}>
       {(creatingIncoming || dialog.type === 'upload') && <div className="space-y-3">
         {creatingIncoming && <><h4 className="font-medium text-zinc-200">1. {t('Original packing list file')}</h4><p className="text-sm text-zinc-400">{t('Select the sender file, then record its number and cargo totals. You can group several originals into a packing header afterwards.')}</p></>}
         <label className="block space-y-2 text-sm text-zinc-300"><span>{t('PDF or image, maximum 5 MB')}</span><input className="input-field" type="file" required accept="application/pdf,image/jpeg,image/png,image/webp" onChange={selectOriginal} /></label>
@@ -128,6 +130,7 @@ export default function PackingLists({ job, onChange }) {
         </>}
       </>}
       {dialog.type === 'finalize' && <p className="text-sm text-zinc-300">{t('Final records are locked. Check the original attachment and receipt result for incoming goods, or the item rows and recipient for outgoing goods.')}</p>}
+      {dialog.type === 'approval' && <><p className="text-sm text-zinc-400">{t('The director reviews the submitted data before this action takes effect.')}</p><Fields fields={[{ key: 'note', label: 'Request note', type: 'textarea', wide: true }]} values={form} onChange={(key, value) => setForm(previous => ({ ...previous, [key]: value }))} /></>}
       {dialog.type === 'delete' && <p className="text-sm text-zinc-300">{t('Delete this draft and its attachment? Final records remain in history.')}</p>}
     </ModalForm>}
   </div>;

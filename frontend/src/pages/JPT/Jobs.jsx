@@ -6,11 +6,13 @@ import { useLanguage } from '../../i18n/LanguageContext';
 import { PageHeader } from '../../components/common';
 import { Button, DataTable, Fields, JobLink, ModalForm, ResourceState, StatusBadge, cargoFields, emptyCargo, jobTypeField, useResource } from '../../components/jpt/Workspace';
 import { formatDate, formatMoney } from '../../utils/format.mjs';
+import { usePageQuery } from '../../components/Layout/PageNavigation';
 
 export default function Jobs() {
   const { t, locale } = useLanguage(); const { canManage } = useAuth(); const navigate = useNavigate();
   const resource = useResource('/jobs'); const companies = useResource('/companies?limit=200');
-  const [search, setSearch] = useState(''); const [status, setStatus] = useState(''); const [jobType, setJobType] = useState(''); const [form, setForm] = useState(null);
+  const [params, setQuery] = usePageQuery(); const search = params.get('search') || ''; const status = params.get('status') || ''; const jobType = params.get('jobType') || '';
+  const setSearch = search => setQuery({ search }); const setStatus = status => setQuery({ status }); const setJobType = jobType => setQuery({ jobType }); const [form, setForm] = useState(null);
   const rows = (resource.data?.data || []).filter(row => (!status || row.status === status) && (!jobType || row.jobType === jobType) && `${row.jobNumber} ${row.title} ${row.customer.name}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="space-y-5"><PageHeader title={t('Job orders')} subtitle={t('Manage each shipment from booking to settlement')} action={canManage() && <Button onClick={() => setForm({ ...emptyCargo, jobType: 'SENDER' })}>{t('Create job order')}</Button>} />
     <select className="input-field max-w-xs" aria-label={t('Job type')} value={jobType} onChange={event => setJobType(event.target.value)}><option value="">{t('All job types')}</option>{['SENDER', 'RECEIVER'].map(type => <option key={type} value={type}>{t(type)}</option>)}</select>

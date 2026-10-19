@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api/client';
 import { StatusBadge, Button, Modal, FormField, Spinner } from '../../components/common';
-import { MapPin, ChevronLeft, Navigation, Upload, Clock, Truck } from 'lucide-react';
+import { MapPin, Navigation, Upload, Clock, Truck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ModalForm, Fields, Notice, useAction, useResource } from '../../components/jpt/Workspace';
 import { changeTransport, transportFormFields } from '../../components/jpt/transport.mjs';
 import { ApprovalSubmit, requestDirector } from '../../components/jpt/DirectorApproval';
 import { downloadDocument } from '../JPT/JobDetail';
+import { useDetailNavigation } from '../../components/Layout/PageNavigation';
 
 const TRACKING_EVENTS = ['DEPARTED', 'REACHED_CHECKPOINT', 'HALTED', 'RESUMED', 'REACHED_DESTINATION', 'DELIVERED'];
 
@@ -17,6 +18,7 @@ export default function ShipmentDetail() {
   const { t: tr, locale } = useLanguage();
   const { id } = useParams();
   const [shipment, setShipment] = useState(null);
+  useDetailNavigation(shipment?.id === id ? shipment.shipmentNumber : '', shipment?.id === id ? shipment.status : null);
   const [loading, setLoading] = useState(true);
   const [trackModal, setTrackModal] = useState(false);
   const [trackForm, setTrackForm] = useState({ eventType: 'REACHED_CHECKPOINT', location: '', city: '', state: '', notes: '' });
@@ -53,7 +55,6 @@ export default function ShipmentDetail() {
   return (
     <div className="max-w-4xl animate-fade-in space-y-5">
       <Notice message={error} />
-      <Link to="/shipments" className="text-zinc-500 hover:text-zinc-300 flex items-center gap-1 text-sm w-fit"><ChevronLeft size={16} />{tr("Back")}</Link>
       {s.job && <Link className="text-brand-400 text-sm block" to={`/jobs/${s.job.id}`}>{s.job.jobNumber} →</Link>}
       {canOperate && !['COMPLETED','CANCELLED'].includes(s.status) && <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => { setTransportForm({ mode: s.mode, transportSource: s.transportSource, carrierId: s.carrierId || '', vehicleId: s.vehicleId || '', driverId: s.driverId || '', quoteId: s.quoteId || '', freightAmount: s.freightAmount ?? '', expectedDelivery: s.expectedDelivery?.slice(0,16) || '', notes: s.notes || '' }); setTransportModal(true); }}>{tr('Submit transport change')}</Button>{s.transportSource === 'EXTERNAL' && <ApprovalSubmit action="TRANSPORT_CHANGE" entityId={s.id} payload={{ status: 'CANCELLED' }} label="Submit vendor leg cancellation" onChange={load} />}</div>}
       {transportModal && <ModalForm title="Submit transport change" submitLabel="Submit request" onClose={() => setTransportModal(false)} onSubmit={async () => { await requestDirector('TRANSPORT_CHANGE', id, transportForm); load(); }}><Fields fields={[...transportFormFields(transportForm, { companies: companies.data?.data, vehicles: vehicles.data?.data, drivers: drivers.data?.data, t: tr }), { key: 'freightAmount', label: 'Freight Amount', type: 'number', min: 0, step: 0.01 }, { key: 'expectedDelivery', label: 'Expected Delivery', type: 'datetime-local' }, { key: 'notes', label: 'Notes', type: 'textarea', wide: true }]} values={transportForm} onChange={(key, value) => setTransportForm(previous => changeTransport(previous, key, value))} /></ModalForm>}

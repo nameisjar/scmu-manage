@@ -33,6 +33,18 @@ invoice serta pembayaran; kemudian mencatat realisasi yang sudah diotorisasi. Ad
 dapat membuka pengelolaan akun atau mengubah profil perusahaan SCMU. Super Admin tidak
 dapat menonaktifkan/menurunkan perannya sendiri; minimal satu Super Admin aktif dipertahankan.
 
+## Navigasi kembali
+
+Halaman detail penawaran komersial, job order, pengiriman dan RFQ memiliki bilah atas
+yang tetap terlihat saat isi digulir. Bilah memuat tombol kembali, nomor dokumen dan status.
+Tujuan mengikuti halaman asal: dokumen dari persetujuan kembali ke persetujuan, sedangkan
+pengiriman yang dibuka dari job kembali ke job dan tab sebelumnya. Tautan yang dibuka
+langsung menggunakan daftar modul sebagai tujuan bawaan.
+
+Pencarian, filter, halaman tabel dan tab job disimpan di URL. Posisi gulir dipulihkan setelah
+data daftar dimuat, termasuk saat memakai tombol Back/Forward browser. Riwayat posisi
+tersimpan selama sesi browser untuk akun yang sedang login.
+
 ## Urutan demonstrasi
 
 1. Buka http://localhost:5173. Login dan pilih Bahasa Indonesia atau English.
@@ -91,10 +103,32 @@ Identitas, harga dan estimasi perjalanan adalah simulasi. Pelacakan dicatat oper
 GPS, carrier, CEISA/INSW, bank, e-Faktur dan pengiriman pesan belum terhubung ke layanan eksternal.
 Keuangan job merupakan buku pembantu operasional, bukan buku besar akuntansi lengkap.
 
+## Tampilan keuangan job
+
+Empat kartu utama menampilkan pendapatan disetujui, laba kotor tertagih, piutang, dan utang
+vendor untuk seluruh job dalam mata uang yang dipilih. Pilih tab **Ringkasan**, **Piutang**,
+**Utang vendor**, atau **Biaya internal** untuk memeriksa tabel terkait. Ringkasan biaya
+internal disetujui/dibayar/sisa tersedia di tab biaya internal; tagihan vendor di tab utang vendor.
+
+Pencarian mencakup nomor job, judul, rute, dan referensi. Pilihan **Masih memiliki saldo**
+membatasi tabel pada job/tagihan dengan saldo positif. Tanpa pilihan ini, catatan lunas tetap
+dapat diperiksa. Filter berlaku pada tabel dan CSV; kartu ringkasan tetap mencakup seluruh job
+dalam mata uang tersebut. Tab, mata uang, pencarian dan pilihan saldo tersimpan di URL.
+
+Tekan **Lihat** untuk modal rincian estimasi, nilai disetujui, penagihan, biaya dan realisasi
+pembayaran. Invoice draf/dibatalkan tidak masuk piutang dan ditandai tidak dihitung dalam
+modal. **Buka keuangan job** menuju tab pembayaran job; tombol kembali memulihkan filter.
+**Ekspor CSV** mengekspor tab aktif sesuai filter dengan nilai desimal asli. Ekspor ringkasan
+mempertahankan kolom buku pembantu yang sudah tersedia.
+
 ## Packing list masuk dan keluar
 
 Buka **Job order → pilih job → Packing list**. Admin menyiapkan dokumen; direktur memutuskan
 pengajuan finalisasi kepala/packing list keluar dan selisih penerimaan.
+
+Tombol **Lihat**, nomor referensi, dan dokumen asal yang dipilih dari kepala packing list
+membuka modal detail. Isi dapat digulir; tombol unduh, cetak, dan tindakan tetap tersedia
+di bagian bawah. Tutup melalui **Tutup**, ikon silang, atau Escape.
 
 - Saat membuat job, pilih jenis **SCMU sebagai pengirim** atau **SCMU sebagai penerima**.
   Daftar job dapat disaring berdasarkan jenis. Jenis dikunci setelah dokumen packing atau
@@ -142,8 +176,9 @@ file ke pihak luar dilakukan manual setelah PDF disimpan.
    Tersedia pengajuan contoh BBM Rp750.000 dan packing list keluar dari Admin.
 2. Buka **Persetujuan direktur**. Admin dapat melihat ringkasan dan riwayat, tetapi tidak
    memiliki tombol keputusan. Pengajuan milik sendiri dapat ditarik dengan alasan.
-3. Login **Direktur** (`admin@scmu.local`), buka menu yang sama, pilih pengajuan, lalu **Periksa pengajuan**.
+3. Login **Direktur** (`admin@scmu.local`), buka menu yang sama, tekan **Lihat** untuk membuka modal detail, lalu **Periksa pengajuan**.
    Pilih disetujui, dikembalikan untuk revisi, atau ditolak. Pengembalian/penolakan wajib disertai catatan.
+   Membatalkan formulir keputusan mengembalikan modal detail; keputusan berhasil menutup modal.
 4. Pengajuan yang dikembalikan diperbaiki Admin pada data asal lalu diajukan kembali.
    Direktur tidak dapat memutuskan pengajuan yang dibuat akunnya sendiri.
 5. Untuk pengeluaran, Admin mengajukan pembayaran atas biaya disetujui. Setelah direktur
@@ -167,6 +202,8 @@ node scripts/jpt-workflow.cjs
 node scripts/test-own-fleet.cjs
 node scripts/test-packing.cjs
 node scripts/test-modal-browser.mjs
+node scripts/test-navigation-browser.mjs
+node scripts/test-finance-browser.mjs
 ```
 
 Jalankan pemeriksaan pertama untuk validasi peran, penghapusan master/akun pelanggan,
@@ -183,7 +220,11 @@ bisa diatur melalui `SCMU_TEST_BROWSER`.
 
 Modal dipasang langsung pada body melalui React portal, sehingga animasi dan scroll halaman
 tidak memotongnya. Form panjang dapat digulir dengan judul dan tombol aksi tetap terlihat.
-Tema aplikasi dan cetak memakai biru; logo SVG mempertahankan warna referensi SCMU.
+Tema aplikasi dan cetak memakai biru. Logo memakai gambar asli `logo scmu asli.jpeg`,
+disimpan tanpa perubahan di `frontend/public/scmu-original.jpeg`. `scmu-logo.svg` memuat
+gambar tersebut secara utuh dengan area tampilan yang mengurangi ruang kosong; ikon tab
+`scmu-favicon.svg` memakai bagian lambangnya. Kedua SVG menyertakan gambar di dalam file
+agar tetap tampil saat dokumen cetak diekspor tanpa koneksi.
 
 ## Menghentikan
 

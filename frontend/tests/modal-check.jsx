@@ -33,7 +33,8 @@ function geometry(label) {
 
 async function api(path, body, token = boot.directorToken) { const response = await fetch(`/api${path}`, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type':'application/json' }, body: body && JSON.stringify(body) }); const data = await response.json(); assert(response.ok, JSON.stringify(data)); return data; }
 async function approve(action, entityId, payload, note) { const row = await api('/approvals', { action, entityId, payload, note }, boot.staffToken); await api(`/approvals/${row.id}/review`, { decision:'APPROVED' }); }
-async function reopenJob(id, receiving) { document.querySelector('a[href="/jobs"]').click(); await until(() => location.pathname === '/jobs' && button('Buat job order'), 'job list'); const link = await until(() => document.querySelector(`a[href="/jobs/${id}"]`), 'job link'); link.click(); await until(() => button('Ubah detail job') && location.pathname === `/jobs/${id}`, 'reopened job'); if (!receiving) button('Packing list').click(); await until(() => receiving ? document.querySelector('[aria-label="Kepala packing list penerimaan"]') : button('Buat packing list keluar'), 'reopened packing'); }
+async function closePackingDetails() { if (document.querySelector('[aria-label="Detail packing list"]')) { button('Tutup').click(); await until(() => !document.querySelector('[role="dialog"]'), 'close packing details'); } }
+async function reopenJob(id, receiving) { await closePackingDetails(); document.querySelector('a[href="/jobs"]').click(); await until(() => location.pathname === '/jobs' && button('Buat job order'), 'job list'); const link = await until(() => document.querySelector(`a[href="/jobs/${id}"]`), 'job link'); link.click(); await until(() => button('Ubah detail job') && location.pathname === `/jobs/${id}`, 'reopened job'); if (!receiving) button('Packing list').click(); await until(() => receiving ? document.querySelector('[aria-label="Kepala packing list penerimaan"]') : button('Buat packing list keluar'), 'reopened packing'); }
 async function main() {
   const trigger = await until(() => button('Buat job order'), 'customer page');
   await until(() => document.body.textContent.includes('Surabaya - Merauke'), 'Indonesian customer data');
@@ -76,7 +77,7 @@ async function main() {
   const quoteDialog = await until(() => document.querySelector('[role="dialog"]'), 'vendor quote modal');
   assert(quoteDialog.querySelector('select')?.required && quoteDialog.querySelectorAll('option').length > 1, 'Admin must select the quote vendor');
   document.querySelector('.modal-close').click(); await until(() => !document.querySelector('[role="dialog"]'), 'close vendor quote');
-  const logo = document.querySelector('img[src="/scmu-logo.svg"]'); await until(() => logo.complete && logo.naturalWidth > 0, 'logo');
+  const logo = document.querySelector('img[src^="/scmu-logo.svg"]'); await until(() => logo.complete && logo.naturalWidth > 0, 'logo');
   document.querySelector('a[href="/jobs"]').click();
   const mixedLink = await until(() => Array.from(document.querySelectorAll('a')).find(link => link.textContent.trim() === 'SCMU-JOB-ARMADA-001'), 'mixed fleet job'); mixedLink.click();
   const addLeg = await until(() => button('Tambah tahap angkutan'), 'mixed job details');
@@ -110,18 +111,20 @@ async function main() {
   await fill('Referensi', `${marker}-out`); button('Tambah rincian barang').click(); await until(() => control('Total berat kotor baris (kg)'), 'packing item');
   await fill('Deskripsi barang', `Peralatan demo ${marker}`); await fill('Total berat bersih baris (kg)', '10'); await fill('Total berat kotor baris (kg)', '12');
   await fill('Koli', '2'); await fill('Panjang per koli (cm)', '100'); await fill('Lebar per koli (cm)', '50'); await fill('Tinggi per koli (cm)', '50'); geometry('Outgoing packing items');
-  saveDialog(); await until(() => !document.querySelector('[role="dialog"]'), 'save outgoing packing');
+  saveDialog(); await until(() => !document.querySelector('[role="dialog"] form'), 'save outgoing packing');
   const details = () => document.querySelector('[aria-label="Detail packing list"]');
   await until(() => details()?.textContent.includes(`${marker}-out`), 'saved outgoing details');
+  geometry('Outgoing packing detail modal'); assert(details().closest('[role="dialog"]') && !document.getElementById('root').querySelector('[aria-label="Detail packing list"]'), 'Packing details must be in a modal, without inline details');
   assert(details().textContent.includes('0.5') || details().textContent.includes('0,5'), 'Packing volume should be calculated');
   const outgoingJobId = location.pathname.split('/').at(-1); const outgoingRecord = (await api(`/jobs/${outgoingJobId}/packing-lists`)).data.find(row => row.reference === `${marker}-out`);
-  button('Ajukan packing list').click(); await until(() => document.querySelector('[role="dialog"]'), 'outgoing approval form'); geometry('Packing approval submission'); document.querySelector('.modal-close').click(); await until(() => !document.querySelector('[role="dialog"]'), 'close approval preview');
+  button('Ajukan packing list').click(); await until(() => control('Catatan pengajuan'), 'outgoing approval form'); geometry('Packing approval submission'); assert(document.querySelectorAll('[role="dialog"]').length === 1, 'Submission replaces packing details'); document.querySelector('.modal-close').click(); await until(() => details(), 'cancel restores packing details');
   await approve('PACKING_FINALIZE', outgoingRecord.id, { version: outgoingRecord.version }, marker); await reopenJob(outgoingJobId, false); button(outgoingRecord.recordNumber).click();
   await until(() => button('Cetak / simpan PDF packing list'), 'director approved outgoing');
   const originalOpen = window.open; let printed = ''; let printTriggered = false;
   window.open = () => ({ document: { write(html) { printed = html; }, close() {}, images: [] }, focus() {}, print() { printTriggered = true; } });
   button('Cetak / simpan PDF packing list').click(); await until(() => printTriggered, 'packing print'); window.open = originalOpen;
   assert(printed.includes(marker) && printed.includes('Packing list keluar SCMU') && printed.includes('display:table-header-group'), 'Final packing print must include saved data and repeatable headers');
+  await closePackingDetails();
   document.querySelector('a[href="/jobs"]').click(); (await until(() => button('Buat job order'), 'jobs for receiving')).click();
   await until(() => control('Jenis job order'), 'job type field'); await select('Jenis job order', 'RECEIVER');
   assert(!control('Penerima'), 'Receiving job recipient is SCMU');
@@ -142,8 +145,9 @@ async function main() {
     assert(document.querySelector('[role="dialog"] a[href^="blob:"]') && !button('Tambah rincian barang'), 'Original preview without repeating item rows');
     await fill('Nomor packing list asal', `PL-ASAL-${marker}-${index}`); await fill('Pengirim', 'Perusahaan A Surabaya'); await fill('Referensi', `${marker}-in-${index}`);
     await fill('Koli menurut dokumen', String((index + 1) * 10)); await fill('Berat bersih (kg)', String((index + 1) * 1100)); await fill('Berat kotor (kg)', String((index + 1) * 1200)); await fill('Volume (CBM)', String((index + 1) * 6.5)); geometry('Original details and pending receipt');
-    saveDialog(); await until(() => !document.querySelector('[role="dialog"]'), 'save original'); await until(() => details()?.textContent.includes(`${marker}-in-${index}`), 'saved original details');
+    saveDialog(); await until(() => !document.querySelector('[role="dialog"] form') && details()?.textContent.includes(`${marker}-in-${index}`), 'saved original details'); geometry('Original packing detail modal');
     assert(button('Unduh packing list asal') && !button('Cetak / simpan PDF packing list'), 'Original retains its own file without reissue');
+    await closePackingDetails();
   }
   (await until(() => button('Buat kepala packing list') && !button('Buat kepala packing list').disabled && button('Buat kepala packing list'), 'create grouped head')).click();
   await until(() => document.querySelectorAll('[role="dialog"] input[type="checkbox"]').length === 2, 'two original choices');
@@ -159,15 +163,15 @@ async function main() {
   for (let index = 0; index < 2; index++) {
     button(`PL-ASAL-${marker}-${index}`).click(); await until(() => details()?.textContent.includes(`${marker}-in-${index}`), 'select original receipt'); button('Ubah').click(); await until(() => control('Hasil penerimaan'), 'receipt form');
     await select('Hasil penerimaan', 'RECEIVED'); await fill('Waktu diterima', '2026-10-19T09:00'); await fill('Diterima oleh', 'Petugas SCMU'); await fill('Koli diterima', String((index + 1) * 10));
-    saveDialog(); await until(() => !document.querySelector('[role="dialog"]'), 'save receipt');
-    button('Finalisasi packing list').click(); await until(() => document.querySelector('[role="dialog"]'), 'finalize original'); saveDialog(); await until(() => !document.querySelector('[role="dialog"]') && !button('Finalisasi packing list'), 'original finalized');
+    saveDialog(); await until(() => !document.querySelector('[role="dialog"] form') && details()?.textContent.includes('Diterima sesuai dokumen'), 'save receipt');
+    button('Finalisasi packing list').click(); await until(() => document.querySelector('[role="dialog"] form'), 'finalize original'); saveDialog(); await until(() => !document.querySelector('[role="dialog"] form') && details() && !button('Finalisasi packing list'), 'original finalized'); await closePackingDetails();
   }
   await until(() => Array.from(head().querySelectorAll('tbody tr')).every(row => row.textContent.includes('Diterima sesuai dokumen') && row.textContent.includes('Final')), 'head receipt summary updates');
   const receivingJobId = location.pathname.split('/').at(-1); const grouped = (await api(`/jobs/${receivingJobId}/packing-header`)).data;
   button('Ajukan kepala packing list').click(); await until(() => document.querySelector('[role="dialog"]'), 'head approval form'); geometry('Head approval submission'); document.querySelector('.modal-close').click(); await until(() => !document.querySelector('[role="dialog"]'), 'close head approval preview');
   await approve('PACKING_HEADER_FINALIZE', grouped.id, { version: grouped.version }, marker); await reopenJob(receivingJobId, true);
   await until(() => !button('Ajukan kepala packing list') && !button('Unggah packing list asal') && button(`PL-ASAL-${marker}-0`), 'director approved head immutable'); button(`PL-ASAL-${marker}-0`).click(); await until(() => button('Unduh packing list asal'), 'original after head approval');
-  assert(!button('Buat packing list keluar') && button('Unduh packing list asal'), 'Receiving role remains separate after finalization'); head().scrollIntoView();
+  assert(!button('Buat packing list keluar') && button('Unduh packing list asal'), 'Receiving role remains separate after finalization'); geometry('Original selected from head opens modal');
   const result = { ok: true, viewport: { width: innerWidth, height: innerHeight }, checks: ['React portal', 'viewport bounds', 'scrollable form', 'visible title/footer', 'mobile columns', 'focus trap and restore', 'Escape/close', 'blue theme', 'Merauke data', 'logo load', 'no customer navigation', 'two user roles', 'SCMU fleet filtering', 'separate cost/payment forms', 'independent outgoing packing print', 'Sender/Receiver job selection', 'original first with type/size validation and preview', 'multiple originals selected under one head', 'summed head and draft PDF', 'per-original receipt/finalization', 'locked final head without outgoing reissue'] };
   document.documentElement.dataset.scmuCheck = btoa(JSON.stringify(result));
 }

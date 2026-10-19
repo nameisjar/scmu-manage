@@ -1,12 +1,13 @@
 import { formatMoney } from '../../utils/format.mjs';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { StatusBadge, Button, Modal, FormField, Spinner } from '../../components/common';
-import { Banknote, MapPin, Package, Calendar, Truck, ChevronLeft } from 'lucide-react';
+import { Banknote, MapPin, Package, Calendar, Truck } from 'lucide-react';
 import { ApprovalSubmit } from '../../components/jpt/DirectorApproval';
+import { useDetailNavigation } from '../../components/Layout/PageNavigation';
 
 export default function RFQDetail() {
   const { t: tr, locale } = useLanguage();
@@ -14,6 +15,7 @@ export default function RFQDetail() {
   const { canManage } = useAuth();
   const [vendors, setVendors] = useState([]);
   const [rfq, setRfq] = useState(null);
+  useDetailNavigation(rfq?.id === id ? rfq.rfqNumber : '', rfq?.id === id ? rfq.status : null);
   const [loading, setLoading] = useState(true);
   const [quoteModal, setQuoteModal] = useState(false);
   const [quoteForm, setQuoteForm] = useState({ transporterId: '', amount: '', validUntil: '', notes: '' });
@@ -47,9 +49,6 @@ export default function RFQDetail() {
 
   return (
     <div className="max-w-4xl animate-fade-in space-y-5">
-      <div className="flex items-center gap-3">
-        <Link to="/rfq" className="text-zinc-500 hover:text-zinc-300 flex items-center gap-1 text-sm"><ChevronLeft size={16} />{tr("Back")}</Link>
-      </div>
 
       {/* Header */}
       <div className="card p-6">

@@ -76,11 +76,20 @@ export function ModalForm({ title, onClose, onSubmit, children, submitLabel = 'S
     <form id={formId} onSubmit={submit} className="space-y-5"><Notice message={error} />{children}</form>
   </Modal>;
 }
+export function DetailModal({ title, onClose, children, actions, width = 'max-w-6xl' }) {
+  const { t } = useLanguage();
+  return <Modal open onClose={onClose} title={t(title)} width={width} footer={
+    <div className="flex flex-wrap items-center gap-2">
+      {actions}
+      <Button type="button" variant="secondary" className="ml-auto" onClick={onClose}>{t('Close')}</Button>
+    </div>
+  }>{children}</Modal>;
+}
 export function DataTable({ columns, rows, empty = 'No records yet' }) {
   const { t } = useLanguage();
   return <div className="card overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-zinc-800">
-    {columns.map(column => <th key={column.key} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">{t(column.label)}</th>)}
-  </tr></thead><tbody className="divide-y divide-zinc-800/60">{rows.length ? rows.map(row => <tr key={row.id} className="hover:bg-zinc-900/40">{columns.map(column => <td key={column.key} className="px-4 py-3 text-zinc-300 align-top">{column.render ? column.render(row) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-zinc-500">{t(empty)}</td></tr>}</tbody></table></div>;
+    {columns.map(column => <th key={column.key} className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 ${column.align === 'right' ? 'text-right' : 'text-left'} ${column.className || ''}`}>{t(column.label)}</th>)}
+  </tr></thead><tbody className="divide-y divide-zinc-800/60">{rows.length ? rows.map(row => <tr key={row.id} className="hover:bg-zinc-900/40">{columns.map(column => <td key={column.key} className={`px-4 py-3 text-zinc-300 align-top ${column.align === 'right' ? 'text-right' : ''} ${column.className || ''}`}>{column.render ? column.render(row) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-zinc-500">{t(empty)}</td></tr>}</tbody></table></div>;
 }
 export function Tabs({ items, value, onChange }) {
   const { t } = useLanguage();

@@ -7,12 +7,14 @@ import { useLanguage } from '../../i18n/LanguageContext';
 import { PageHeader, SearchInput } from '../../components/common';
 import { Button, DataTable, Fields, ModalForm, Notice, ResourceState, StatusBadge, cargoFields, emptyCargo, useAction, useResource } from '../../components/jpt/Workspace';
 import { formatDate, formatMoney } from '../../utils/format.mjs';
+import { usePageQuery } from '../../components/Layout/PageNavigation';
 
 const emptyItem = () => ({ description: '', quantity: 1, unit: 'JOB', sellRate: 0, buyRate: 0 });
 export default function Quotations() {
   const { t, locale } = useLanguage(); const { canManage } = useAuth(); const navigate = useNavigate();
   const resource = useResource('/sales-quotations'); const companies = useResource('/companies?internal=true&limit=200');
-  const action = useAction(resource.reload); const [search, setSearch] = useState(''); const [creating, setCreating] = useState(false);
+  const [params, setQuery] = usePageQuery(); const search = params.get('search') || ''; const setSearch = search => setQuery({ search });
+  const action = useAction(resource.reload); const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ ...emptyCargo, validUntil: '', terms: '' }); const [items, setItems] = useState([emptyItem()]);
   const rows = (resource.data?.data || []).filter(row => `${row.quotationNumber} ${row.title} ${row.customer.name}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="space-y-5 animate-fade-in">

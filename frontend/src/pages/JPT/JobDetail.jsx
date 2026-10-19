@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useDetailNavigation, usePageQuery } from '../../components/Layout/PageNavigation';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../i18n/LanguageContext';
@@ -28,8 +29,9 @@ export default function JobDetail() {
   const { id } = useParams(); const { t, locale, language } = useLanguage(); const { user, canManage } = useAuth();
   const resource = useResource(`/jobs/${id}`); const companies = useResource('/companies?limit=200'); const job = resource.data;
   const fleet = useResource('/fleet?limit=200'); const drivers = useResource('/drivers?limit=200');
-  const action = useAction(resource.reload); const [tab, setTab] = useState('transport'); const [dialog, setDialog] = useState(null); const [form, setForm] = useState({}); const [file, setFile] = useState(null);
-  useEffect(() => { if (job?.id) setTab(job.jobType === 'RECEIVER' ? 'packing' : 'transport'); }, [job?.id, job?.jobType]);
+  const [params, setQuery] = usePageQuery(); const tab = params.get('tab') || (job?.jobType === 'RECEIVER' ? 'packing' : 'transport'); const setTab = tab => setQuery({ tab });
+  const action = useAction(resource.reload); const [dialog, setDialog] = useState(null); const [form, setForm] = useState({}); const [file, setFile] = useState(null);
+  useDetailNavigation(job?.id === id ? job.jobNumber : '', job?.id === id ? job.status : null);
   const finance = canManage(); const operator = ['SUPER_ADMIN', 'ADMIN'].includes(user?.role);
   const editable = job && !['CLOSED', 'CANCELLED'].includes(job.status); const base = `/jobs/${id}`;
   const money = amount => formatMoney(amount, job?.currency, locale);
@@ -101,7 +103,7 @@ export default function JobDetail() {
     { key: 'balance', label: 'Outstanding balance', render: row => money(Number(row.actualAmount) - row.payments.reduce((sum, payment) => sum + Number(payment.amount), 0)) },
     { key: 'actions', label: 'Actions', render: row => { const balance = Number(row.actualAmount) - row.payments.reduce((sum, payment) => sum + Number(payment.amount), 0); return editable && finance && balance > 0 && <Button size="sm" onClick={() => open('payment', { direction: source === 'INTERNAL' ? 'INTERNAL_EXPENSE' : 'PAYABLE', chargeId: row.id, amount: balance.toFixed(2), reference: '', method: source === 'INTERNAL' ? 'CASH' : 'BANK_TRANSFER', isAdvance: 'no', paidTo: '' })}>{t(source === 'INTERNAL' ? 'Request internal payment' : 'Request vendor payment')}</Button>; } },
   ]} />;
-  return <div className="space-y-5"><Link to="/jobs" className="text-zinc-400 text-sm">← {t('Job orders')}</Link><Notice message={action.error} />
+  return <div className="space-y-5"><Notice message={action.error} />
     <ResourceState resource={resource}>{job && <>
       <PageHeader title={job.jobNumber} subtitle={job.title} action={<div className="flex flex-wrap gap-2 items-center"><span className="rounded-lg bg-brand-500/15 px-3 py-1.5 text-sm text-brand-300">{t(job.jobType)}</span><StatusBadge status={job.status} /></div>} />
       <div className="card p-5 grid sm:grid-cols-3 gap-4 text-sm text-zinc-300"><div><p className="text-zinc-500 text-xs">{t('SCMU company')}</p>{job.customer.name}</div><div><p className="text-zinc-500 text-xs">{t('Route')}</p>{job.originCity} → {job.destCity}</div><div><p className="text-zinc-500 text-xs">{t('Expected Delivery')}</p>{formatDate(job.expectedDelivery, locale, true)}</div><div><p className="text-zinc-500 text-xs">{t('Cargo description')}</p>{job.cargoDescription} · {job.packages} {t('Packages')} · {job.weightKg} kg · {job.volumeCbm} CBM</div><div><p className="text-zinc-500 text-xs">{t('Recipient')}</p>{job.recipientName || '—'}<p>{job.deliveryAddress}</p></div><div><p className="text-zinc-500 text-xs">{t('Job reference')}</p>{job.customerReference || '—'}{job.quotation && <Link className="block text-brand-400" to={`/sales-quotations/${job.quotation.id}`}>{job.quotation.quotationNumber}</Link>}</div></div>

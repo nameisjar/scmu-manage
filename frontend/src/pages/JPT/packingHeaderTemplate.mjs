@@ -1,6 +1,6 @@
 import { formatDate } from '../../utils/format.mjs';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-export function createPackingHeaderHtml(header, { t = value => value, locale = 'id-ID', language = 'id', logoUrl = '/scmu-logo.svg' } = {}) {
+export function createPackingHeaderHtml(header, { t = value => value, locale = 'id-ID', language = 'id', logoUrl = '/scmu-logo.svg?v=20261020' } = {}) {
   if (!header?.packingLists?.length || header.job?.jobType !== 'RECEIVER') throw Error('Only receiving packing headers can be printed');
   const e = escape; const label = key => e(t(key)); const num = value => e(Number(value || 0).toLocaleString(locale, { maximumFractionDigits: 4 }));
   const receipt = row => row.receiptStatus === 'PENDING' ? 'Awaiting receipt' : row.receiptStatus === 'RECEIVED' ? 'Received as declared' : 'Receipt discrepancy';
@@ -16,7 +16,7 @@ export function createPackingHeaderHtml(header, { t = value => value, locale = '
   </body></html>`;
 }
 export function printPackingHeader(header, options) {
-  const html = createPackingHeaderHtml(header, { ...options, logoUrl: new URL('/scmu-logo.svg', window.location.origin).href });
+  const html = createPackingHeaderHtml(header, { ...options, logoUrl: new URL('/scmu-logo.svg?v=20261020', window.location.origin).href });
   const popup = window.open('', '_blank'); if (!popup) throw Error('Please allow pop-ups to print');
   popup.document.write(html); popup.document.close();
   Promise.all(Array.from(popup.document.images).map(img => img.decode?.().catch(() => {}) ?? Promise.resolve())).then(() => { popup.focus(); popup.print(); });

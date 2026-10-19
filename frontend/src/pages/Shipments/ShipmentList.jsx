@@ -6,6 +6,8 @@ import { Package, Plus } from 'lucide-react';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader, Button, StatusBadge, SearchInput, EmptyState, Spinner } from '../../components/common';
+import { usePageQuery } from '../../components/Layout/PageNavigation';
+import { positivePage } from '../../components/Layout/navigation.mjs';
 
 const STATUSES = ['', 'PENDING', 'ASSIGNED', 'IN_TRANSIT', 'DELIVERED', 'POD_UPLOADED', 'COMPLETED', 'CANCELLED'];
 
@@ -14,23 +16,25 @@ export default function ShipmentList() {
   const [shipments, setShipments] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
+  const [params, setQuery] = usePageQuery(); const search = params.get('search') || ''; const status = params.get('status') || ''; const page = positivePage(params.get('page'));
+  const setSearch = search => setQuery({ search, page: null }); const setStatus = status => setQuery({ status, page: null }); const setPage = next => setQuery({ page: typeof next === 'function' ? next(page) : next });
   const { canManage } = useAuth();
   const limit = 20;
 
   const load = () => {
     setLoading(true);
     const params = { page, limit, ...(search && { search }), ...(status && { status }) };
-    api.get('/shipments', { params })
+    const controller = new AbortController();
+    api.get('/shipments', { params, signal: controller.signal })
       .then(r => { setShipments(r.data.data); setTotal(r.data.total); })
-      .finally(() => setLoading(false));
+      .catch(error => { if (error.code !== 'ERR_CANCELED') { setShipments([]); setTotal(0); } })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   };
 
   useEffect(() => {
-    const timer = setTimeout(load, search ? 400 : 0);
-    return () => clearTimeout(timer);
+    let cancel; const timer = setTimeout(() => { cancel = load(); }, search ? 400 : 0);
+    return () => { clearTimeout(timer); cancel?.(); };
   }, [search, page, status]);
 
   return (
@@ -43,7 +47,7 @@ export default function ShipmentList() {
 
       <div className="flex flex-wrap items-center gap-3">
         <SearchInput value={search} onChange={setSearch} placeholder={tr("Search shipments...")} />
-        <select className="input-field w-44" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
+        <select className="input-field w-44" aria-label={tr('Status')} value={status} onChange={e => setStatus(e.target.value)}>
           {STATUSES.map(s => <option key={s} value={s}>{tr(s || 'All Statuses')}</option>)}
         </select>
       </div>

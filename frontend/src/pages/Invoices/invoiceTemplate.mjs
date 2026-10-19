@@ -13,7 +13,7 @@ function escapeRecord(value) {
   return value;
 }
 
-export function createInvoiceHtml(data, { language: requestedLanguage = DEFAULT_LANGUAGE, logoUrl = '/scmu-logo.svg', generatedAt = new Date() } = {}) {
+export function createInvoiceHtml(data, { language: requestedLanguage = DEFAULT_LANGUAGE, logoUrl = '/scmu-logo.svg?v=20261020', generatedAt = new Date() } = {}) {
   const language = isLanguage(requestedLanguage) ? requestedLanguage : DEFAULT_LANGUAGE;
   const locale = LOCALES[language];
   const tr = key => escapeText(translate(language, key));

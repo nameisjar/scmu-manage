@@ -1,6 +1,6 @@
 import { formatDate } from '../../utils/format.mjs';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-export function createPackingListHtml(record, { t = value => value, locale = 'id-ID', language = 'id', logoUrl = '/scmu-logo.svg' } = {}) {
+export function createPackingListHtml(record, { t = value => value, locale = 'id-ID', language = 'id', logoUrl = '/scmu-logo.svg?v=20261020' } = {}) {
   if (record.direction !== 'OUTBOUND' || record.status !== 'FINAL') throw new Error('Only finalized outgoing packing lists can be printed');
   const e = escape; const label = key => e(t(key));
   const quantity = value => Number(value || 0).toLocaleString(locale, { maximumFractionDigits: 4 });
@@ -19,7 +19,7 @@ export function createPackingListHtml(record, { t = value => value, locale = 'id
   </body></html>`;
 }
 export function printPackingList(record, options) {
-  const html = createPackingListHtml(record, { ...options, logoUrl: new URL('/scmu-logo.svg', window.location.origin).href });
+  const html = createPackingListHtml(record, { ...options, logoUrl: new URL('/scmu-logo.svg?v=20261020', window.location.origin).href });
   const popup = window.open('', '_blank'); if (!popup) throw Error('Please allow pop-ups to print');
   popup.document.write(html); popup.document.close();
   Promise.all(Array.from(popup.document.images).map(img => img.decode?.().catch(() => {}) ?? Promise.resolve())).then(() => { popup.focus(); popup.print(); });

@@ -9,14 +9,15 @@ import { Button, DataTable, Fields, ModalForm, Notice, ResourceState, StatusBadg
 import { formatDate, formatMoney } from '../../utils/format.mjs';
 import { printQuotation } from '../../utils/commercialPrint';
 import { ApprovalSubmit } from '../../components/jpt/DirectorApproval';
+import { useDetailNavigation } from '../../components/Layout/PageNavigation';
 
 export default function QuotationDetail() {
   const { id } = useParams(); const navigate = useNavigate(); const { t, locale, language } = useLanguage(); const { canManage } = useAuth();
   const resource = useResource(`/sales-quotations/${id}`); const action = useAction(resource.reload); const q = resource.data;
+  useDetailNavigation(q?.id === id ? q.quotationNumber : '', q?.id === id ? q.status : null);
   const [editing, setEditing] = useState(false);
   const [jobForm, setJobForm] = useState(null);
   return <div className="space-y-5 animate-fade-in">
-    <Link to="/sales-quotations" className="text-sm text-zinc-400">← {t('Commercial quotations')}</Link>
     <Notice message={action.error} />
     <ResourceState resource={resource}>{q && <>
       <PageHeader title={q.quotationNumber} subtitle={q.title} action={<StatusBadge status={q.status} />} />

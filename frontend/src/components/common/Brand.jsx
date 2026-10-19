@@ -4,10 +4,10 @@ export default function Brand({ large = false }) {
   return (
     <div className="flex items-center gap-3">
       <img
-        src="/scmu-logo.svg"
-        alt="Logo SCMU"
+        src="/scmu-logo.svg?v=20261020"
+        alt="Logo PT. SCMU"
         width={large ? 80 : 56}
-        height={large ? 80 : 56}
+        height={large ? 95 : 66}
         className="flex-shrink-0 object-contain select-none"
       />
       <div>

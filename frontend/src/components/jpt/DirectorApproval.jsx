@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../i18n/LanguageContext';
-import { Button, DataTable, Fields, ModalForm, Notice, ResourceState, StatusBadge, useResource } from './Workspace';
+import { Button, DataTable, DetailModal, Fields, ModalForm, ResourceState, StatusBadge, useResource } from './Workspace';
 import { formatDate, formatMoney } from '../../utils/format.mjs';
+import { usePageQuery } from '../Layout/PageNavigation';
 
 export const approvalChanged = submitted => window.dispatchEvent(new CustomEvent('scmu-approval-change', { detail: { submitted } }));
 export async function requestDirector(action, entityId, payload = {}, note = '') {
@@ -23,7 +24,8 @@ export function ApprovalToast() {
 }
 export default function DirectorApprovals({ jobId, onChange }) {
   const { user, isSuperAdmin } = useAuth(); const { t, locale } = useLanguage(); const director = isSuperAdmin();
-  const [status, setStatus] = useState(jobId || !director ? '' : 'SUBMITTED'); const [selected, setSelected] = useState(null); const [dialog, setDialog] = useState(null); const [form, setForm] = useState({});
+  const [query, setQuery] = usePageQuery(); const status = query.get('approvalStatus') === 'all' ? '' : query.get('approvalStatus') || (jobId || !director ? '' : 'SUBMITTED'); const setStatus = status => setQuery({ approvalStatus: status || 'all' });
+  const [selected, setSelected] = useState(null); const [dialog, setDialog] = useState(null); const [form, setForm] = useState({});
   const params = new URLSearchParams({ ...(jobId && { jobId }), ...(status && { status }) }); const resource = useResource(`/approvals?${params}`);
   useEffect(() => { const listener = () => resource.reload(); window.addEventListener('scmu-approval-change', listener); return () => window.removeEventListener('scmu-approval-change', listener); }, [resource.reload]);
   const rows = resource.data?.data || []; const current = rows.find(row => row.id === selected);
@@ -32,7 +34,7 @@ export default function DirectorApprovals({ jobId, onChange }) {
     if (dialog.type === 'review') await api.post(`/approvals/${dialog.row.id}/review`, { decision: form.decision, note: form.note });
     else if (dialog.type === 'withdraw') await api.post(`/approvals/${dialog.row.id}/withdraw`, { note: form.note });
     else await api.post(`/jobs/${dialog.row.jobId}/payments`, { ...dialog.row.payload, approvalId: dialog.row.id, paidAt: form.paidAt, notes: form.notes });
-    resource.reload(); onChange?.(); approvalChanged(false);
+    setSelected(null); resource.reload(); onChange?.(); approvalChanged(false);
   };
   const value = (label, raw, row = current) => {
     if (raw === undefined || raw === null) return '—'; const currency = row?.snapshot.overview.find(field => field.label === 'Currency')?.value || 'IDR';
@@ -47,18 +49,18 @@ export default function DirectorApprovals({ jobId, onChange }) {
       { key: 'requestedBy', label: 'Requested by', render: row => row.requestedBy?.name }, { key: 'createdAt', label: 'Submitted at', render: row => formatDate(row.createdAt, locale, true) }, { key: 'status', label: 'Status', render: row => <><StatusBadge status={row.status} />{row.executedAt && row.action === 'PAYMENT_AUTHORIZE' && <p className="text-xs text-emerald-300 mt-1">{t('Payment recorded')}</p>}</> },
       { key: 'actions', label: 'Actions', render: row => <Button variant="secondary" size="sm" onClick={() => setSelected(row.id)}>{t('View')}</Button> },
     ]} /></ResourceState>
-    {current && <section className="card p-5 space-y-4" aria-label={t('Approval details')}>
+    {current && !dialog && <DetailModal title="Approval details" onClose={() => setSelected(null)} actions={<>
+      <Link className="self-center text-sm text-brand-300 underline mr-2" to={current.snapshot.targetUrl} onClick={() => setSelected(null)}>{t('Open source record')}</Link>
+      {director && current.status === 'SUBMITTED' && current.requestedById !== user.id && <Button size="sm" onClick={() => open('review', current)}>{t('Review request')}</Button>}
+      {(current.status === 'SUBMITTED' || (current.status === 'APPROVED' && current.action === 'PAYMENT_AUTHORIZE' && !current.executedAt)) && (director || current.requestedById === user.id) && <Button size="sm" variant="secondary" onClick={() => open('withdraw', current)}>{t('Withdraw request')}</Button>}
+      {current.status === 'APPROVED' && current.action === 'PAYMENT_AUTHORIZE' && !current.executedAt && <Button size="sm" onClick={() => open('execute', current)}>{t('Record actual payment')}</Button>}
+    </>}><section className="space-y-4" aria-label={t('Approval details')}>
       <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold text-zinc-100">{t(current.action)}</h3><StatusBadge status={current.status} /></div>
       <dl className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{current.snapshot.overview.map((field, index) => <div className="min-w-0" key={index}><dt className="text-xs text-zinc-500">{t(field.label === 'Approved actual amount' ? 'Proposed actual amount' : field.label)}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-sm text-zinc-200">{value(field.label, field.value)}</dd></div>)}</dl>
       {current.snapshot.tables.map((item, index) => <div className="space-y-2" key={index}><h4 className="font-medium text-zinc-300">{t(item.title)}</h4><DataTable rows={item.rows.map((row, i) => ({ ...row, id: row.id || i }))} columns={item.columns.map(column => ({ ...column, render: row => value(column.label, row[column.key]) }))} /></div>)}
       <div className="space-y-2 text-sm text-zinc-400"><p>{t('Requested by')}: {current.requestedBy?.name} · {formatDate(current.createdAt, locale, true)}</p>{current.requestNote && <p className="whitespace-pre-wrap">{t('Request note')}: {current.requestNote}</p>}{current.reviewedAt && <p>{t('Reviewed by')}: {current.reviewedBy?.name} · {formatDate(current.reviewedAt, locale, true)}</p>}{current.reviewNote && <p className="whitespace-pre-wrap">{t('Decision note')}: {current.reviewNote}</p>}{current.status === 'RETURNED' && <p>{t('Correct the source data, then submit a new request.')}</p>}</div>
-      <div className="flex flex-wrap gap-2"><Link className="self-center text-sm text-brand-300 underline mr-2" to={current.snapshot.targetUrl}>{t('Open source record')}</Link>
-        {director && current.status === 'SUBMITTED' && current.requestedById !== user.id && <Button size="sm" onClick={() => open('review', current)}>{t('Review request')}</Button>}
-        {(current.status === 'SUBMITTED' || (current.status === 'APPROVED' && current.action === 'PAYMENT_AUTHORIZE' && !current.executedAt)) && (director || current.requestedById === user.id) && <Button size="sm" variant="secondary" onClick={() => open('withdraw', current)}>{t('Withdraw request')}</Button>}
-        {current.status === 'APPROVED' && current.action === 'PAYMENT_AUTHORIZE' && !current.executedAt && <Button size="sm" onClick={() => open('execute', current)}>{t('Record actual payment')}</Button>}
-      </div>
       {director && current.status === 'SUBMITTED' && current.requestedById === user.id && <p className="text-sm text-brand-300">{t('Your own request requires another director. You can withdraw it and ask Admin to submit the checked data.')}</p>}
-    </section>}
+    </section></DetailModal>}
     {dialog && <ModalForm width="max-w-3xl" title={dialog.type === 'review' ? 'Review request' : dialog.type === 'withdraw' ? 'Withdraw request' : 'Record actual payment'} onClose={() => setDialog(null)} onSubmit={submit} submitLabel={dialog.type === 'review' ? 'Save decision' : 'Save'}>
       <p className="text-sm text-zinc-400">{t(dialog.row.action)}</p><Fields fields={dialog.type === 'execute' ? [{ key: 'paidAt', label: 'Paid Date', type: 'datetime-local', required: true }, { key: 'notes', label: 'Payment proof reference / notes', type: 'textarea', wide: true, required: true }] : [...(dialog.type === 'review' ? [{ key: 'decision', label: 'Decision', options: ['APPROVED','RETURNED','REJECTED'], required: true }] : []), { key: 'note', label: dialog.type === 'withdraw' ? 'Withdrawal note' : 'Decision note', type: 'textarea', required: dialog.type === 'withdraw' || form.decision !== 'APPROVED', wide: true }]} values={form} onChange={(key, input) => setForm(previous => ({ ...previous, [key]: input }))} />
     </ModalForm>}

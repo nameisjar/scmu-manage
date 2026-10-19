@@ -8,7 +8,7 @@ export function PrintButton({ invoice }) {
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) return;
     printWindow.document.write(createInvoiceHtml(invoice, {
-      language, logoUrl: new URL('/scmu-logo.svg', window.location.origin).href,
+      language, logoUrl: new URL('/scmu-logo.svg?v=20261020', window.location.origin).href,
     }));
     printWindow.document.close();
     const imagesReady = Array.from(printWindow.document.images, image => image.decode().catch(() => {}));
