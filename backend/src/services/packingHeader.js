@@ -5,11 +5,15 @@ function presentHeader(header) {
   if (!header) return null;
   const rows = header.packingLists;
   const received = rows.filter(row => row.receiptStatus !== 'PENDING');
+  const keys = ['netWeightKg', 'grossWeightKg', 'volumeCbm'];
+  const missingDocuments = Object.fromEntries(keys.map(key => [key, rows.filter(row => row[key] == null).length]));
+  const knownTotals = Object.fromEntries(keys.map(key => [key, rows.every(row => row[key] == null) ? null : sum(rows, row => row[key]).toFixed(key === 'volumeCbm' ? 4 : 3)]));
   return { ...header, summary: {
     documentCount: rows.length, receivedDocuments: received.length, pendingDocuments: rows.length - received.length,
     discrepancyDocuments: rows.filter(row => row.receiptStatus === 'DISCREPANCY').length,
     packages: rows.reduce((total, row) => total + row.packages, 0),
-    netWeightKg: sum(rows, row => row.netWeightKg).toFixed(3), grossWeightKg: sum(rows, row => row.grossWeightKg).toFixed(3), volumeCbm: sum(rows, row => row.volumeCbm).toFixed(4),
+    ...Object.fromEntries(keys.map(key => [key, missingDocuments[key] ? null : knownTotals[key]])),
+    knownTotals, missingDocuments, uncheckedDocuments: rows.filter(row => !row.summaryCheckedAt).length,
     actualPackages: received.reduce((total, row) => total + row.actualPackages, 0),
   } };
 }

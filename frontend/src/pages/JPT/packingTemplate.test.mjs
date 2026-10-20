@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createPackingListHtml } from './packingTemplate.mjs';
 import { createPackingHeaderHtml } from './packingHeaderTemplate.mjs';
 import { translate } from '../../i18n/translations.mjs';
+import { packingNumber, packingSummaryValue } from './packingSummary.mjs';
 const sample = { direction: 'OUTBOUND', status: 'FINAL', recordNumber: 'PL-SCMU-1', documentDate: '2026-10-19', companyName: 'SCMU', companyAddress: 'Merauke', senderName: 'SCMU', recipientName: '<script>alert(1)</script>', recipientAddress: 'Merauke & Papua', originCity: 'Surabaya', destCity: 'Merauke', packages: 2, netWeightKg: '10', grossWeightKg: '12', volumeCbm: '0.5000', job: { jobNumber: 'JOB-1' }, items: [{ sequence: 1, description: 'Equipment <img src=x>', quantity: 4, unit: 'UNIT', packages: 2, netWeightKg: 10, grossWeightKg: 12, volumeCbm: 0.5 }], sources: [] };
 test('only final outbound records print, with escaped parties/items and repeatable A4 headers', () => {
   assert.throws(() => createPackingListHtml({ ...sample, direction: 'INBOUND' })); assert.throws(() => createPackingListHtml({ ...sample, status: 'DRAFT' }));
@@ -33,4 +34,15 @@ test('receiving head prints all selected originals, marks drafts, escapes data a
   assert.ok(final.includes('Receiving packing header') && !final.includes('class="draft"'));
   assert.equal(JSON.stringify(header), before);
   assert.throws(() => createPackingHeaderHtml({ ...header, job: { jobType: 'SENDER' } }));
+});
+
+test('unknown and explicit zero measurements stay distinct in the receiving header and its printout', () => {
+  const options={t:(key,values)=>translate('id',key,values),locale:'id-ID'};
+  assert.equal(packingNumber(null,options),'Tidak tercantum'); assert.equal(packingNumber(0,options),'0');
+  const summary={packages:15,grossWeightKg:null,netWeightKg:null,volumeCbm:'6.5',knownTotals:{grossWeightKg:'1200',netWeightKg:null},missingDocuments:{grossWeightKg:1,netWeightKg:2,volumeCbm:0}};
+  assert.equal(packingSummaryValue(summary,'grossWeightKg',options),'Subtotal tersedia: 1.200 · Tidak tercantum pada 1 dokumen');
+  const header={companyName:'SCMU',headerNumber:'KPL-MISSING',documentDate:'2026-10-20',status:'DRAFT',job:{jobType:'RECEIVER'},summary,packingLists:[{externalNumber:'A',senderName:'A',documentDate:'2026-10-20',packages:5,netWeightKg:null,grossWeightKg:null,volumeCbm:0,receiptStatus:'PENDING'}]};
+  const html=createPackingHeaderHtml(header,options);
+  assert.ok(html.includes('<td>Tidak tercantum</td>')); assert.ok(html.includes('Subtotal tersedia: 1.200')); assert.ok(html.includes('belum mewakili seluruh muatan'));
+  assert.ok(!html.includes('{count}'));
 });

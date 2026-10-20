@@ -101,6 +101,7 @@ const jobInclude = {
   documents: { orderBy: { createdAt: 'asc' }, include: { packingList: { select: { id: true, direction: true, status: true, recordNumber: true } } } }, invoices: { include: { items: true, payments: true }, orderBy: { createdAt: 'desc' } },
   packingLists: { select: { id: true, status: true, direction: true, recordNumber: true } },
   packingHeader: { select: { id: true, status: true, headerNumber: true } },
+  seaBills: { include: { shipment: { select: { mode:true,carrierId:true,originCity:true,destCity:true,vesselFlight:true,containerNumber:true,sealNumber:true } }, allocations: { include: { packingList: { select: { id:true, recordNumber:true, externalNumber:true, senderName:true, recipientName:true, packages:true, grossWeightKg:true, volumeCbm:true } } } } } },
   payments: { orderBy: { paidAt: 'desc' } }, operations: { orderBy: { eventDate: 'desc' } },
 };
 function invoiceBalance(invoice) {
@@ -139,6 +140,11 @@ function alerts(job, now = new Date()) {
     if (document.required && document.status !== 'VERIFIED') list.push({ type: 'DOCUMENT_REQUIRED', reference: document.title });
     if (document.expiresAt && document.expiresAt < now) list.push({ type: 'DOCUMENT_EXPIRED', reference: document.title });
   }
+  for(const bill of job.seaBills || []) {
+    if(!(job.shipments || []).some(leg=>leg.id===bill.shipmentId&&leg.mode==='SEA'&&leg.status!=='CANCELLED'))continue;
+    if(bill.internalStatus!=='SEA_MATCHED'||require('./seaBills').issues(bill).includes('SEA_PACKING_CHANGED'))list.push({type:'SEA_REVIEW_REQUIRED',reference:bill.billNumber||job.jobNumber});
+    if(job.jobType==='RECEIVER'&&bill.releaseStatus!=='SEA_RELEASE_CONFIRMED')list.push({type:'SEA_RELEASE_PENDING',reference:bill.billNumber||job.jobNumber});
+  }
   for (const invoice of job.invoices || []) if (invoice.status !== 'CANCELLED' && invoice.dueDate && invoice.dueDate < now && invoiceBalance(invoice).gt(0)) list.push({ type: 'INVOICE_OVERDUE', reference: invoice.invoiceNumber });
   if ((job.charges || []).some(charge => charge.status === 'PROPOSED')) list.push({ type: 'APPROVAL_REQUIRED', reference: job.jobNumber });
   return list;
@@ -158,6 +164,7 @@ async function syncJob(tx, jobId) {
   if (job.status !== status) await tx.jobOrder.update({ where: { id: jobId }, data: { status } });
 }
 function checkJobClosure(job) {
+  require('./seaBills').checkSeaClosure(job);
   if (job.jobType === 'RECEIVER') {
     fail(job.packingHeader?.status === 'FINAL', 'Finalize the receiving packing header before closing', 409);
     fail(!['CLOSED', 'CANCELLED'].includes(job.status), 'This job is already closed or cancelled', 409);

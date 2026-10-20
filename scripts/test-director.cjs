@@ -83,11 +83,12 @@ async function main() {
   const claim = await request(`${base}/operations`, admin, { kind:'CLAIM', status:'OPEN', reference:marker, notes:'Damage reported' });
   await request(`${base}/operations/${claim.id}`, admin, { status:'SETTLED' }, 'PUT', 403); await approve(await submit('CLAIM_DECISION', claim.id, { status:'SETTLED', notes:'Resolved with supporting report' }));
   await request(`/shipments/${leg.id}/tracking`, admin, { eventType:'DELIVERED', location:'Merauke' });
-  for (const document of (await request(base, admin)).documents.filter(row => row.required && row.status !== 'VERIFIED')) { await request(`${base}/documents/${document.id}/upload`, admin, file()); await request(`${base}/documents/${document.id}/verify`, admin, {}); }
+  await require('./sea-test-support.cjs').complete(request, admin, job.id, async row => approve(await submit('PACKING_FINALIZE', row.id, { version:row.version })));
+  for (const document of (await request(base, admin)).documents.filter(row => row.required && row.status !== 'VERIFIED' && !['BILL_OF_LADING','SEA_WAYBILL'].includes(row.type))) { await request(`${base}/documents/${document.id}/upload`, admin, file()); await request(`${base}/documents/${document.id}/verify`, admin, {}); }
   await request(`${base}/close`, admin, {}, 'POST', 403); await approve(await submit('JOB_CLOSE', job.id)); assert.equal((await request(base, admin)).status, 'CLOSED');
   const receiver = await createJob('RECEIVER'); const receiving = `/jobs/${receiver.id}`; const originals=[];
   for (let index=0;index<2;index++) {
-    const row = await request(`${receiving}/packing-lists`, admin, file({ direction:'INBOUND', documentDate:'2026-10-19', externalNumber:`PL-${marker}-${index}`, senderName:'Perusahaan A Surabaya', originCity:'Surabaya', destCity:'Merauke', packages:index?5:10, grossWeightKg:index?600:1200, receiptStatus:index?'DISCREPANCY':'RECEIVED', actualPackages:index?4:10, receivedAt:new Date().toISOString(), receivedBy:'Petugas SCMU', discrepancyNotes:index?'Satu koli kurang':null })); originals.push(row);
+    const row = await request(`${receiving}/packing-lists`, admin, file({ direction:'INBOUND',summaryConfirmed:true, documentDate:'2026-10-19', externalNumber:`PL-${marker}-${index}`, senderName:'Perusahaan A Surabaya', originCity:'Surabaya', destCity:'Merauke', packages:index?5:10, grossWeightKg:index?600:1200, receiptStatus:index?'DISCREPANCY':'RECEIVED', actualPackages:index?4:10, receivedAt:new Date().toISOString(), receivedBy:'Petugas SCMU', discrepancyNotes:index?'Satu koli kurang':null })); originals.push(row);
     if(index) { await request(`${receiving}/packing-lists/${row.id}/finalize`, admin, {version:row.version}, 'POST', 403); await approve(await submit('PACKING_EXCEPTION', row.id, {version:row.version})); }
     else await request(`${receiving}/packing-lists/${row.id}/finalize`, admin, {version:row.version});
   }
@@ -100,6 +101,7 @@ async function main() {
 async function cleanup() {
   const documents=await prisma.jobDocument.findMany({where:{jobId:{in:jobs}}}); const files=require('../backend/src/services/jobFiles'); for(const row of documents) await files.removeFile(row.filename);
   await prisma.directorApproval.deleteMany({where:{id:{in:approvals}}}); await prisma.jobPayment.deleteMany({where:{jobId:{in:jobs}}}); await prisma.invoiceItem.deleteMany({where:{invoice:{jobId:{in:jobs}}}}); await prisma.invoice.deleteMany({where:{jobId:{in:jobs}}});
+  await require('./sea-test-support.cjs').cleanup(prisma, jobs);
   await prisma.packingHeader.deleteMany({where:{jobId:{in:jobs}}}); await prisma.packingList.deleteMany({where:{jobId:{in:jobs}}}); await prisma.jobDocument.deleteMany({where:{jobId:{in:jobs}}}); await prisma.jobOperation.deleteMany({where:{jobId:{in:jobs}}}); await prisma.jobCharge.deleteMany({where:{jobId:{in:jobs}}});
   await prisma.trackingEvent.deleteMany({where:{shipment:{jobId:{in:jobs}}}}); await prisma.shipment.deleteMany({where:{jobId:{in:jobs}}}); await prisma.jobOrder.deleteMany({where:{id:{in:jobs}}}); await prisma.salesQuotation.deleteMany({where:{id:{in:quotes}}});
   for(const id of rfqs) { await prisma.rFQ.update({where:{id},data:{awardedQuoteId:null}}); await prisma.quote.deleteMany({where:{rfqId:id}}); await prisma.rFQ.delete({where:{id}}); }

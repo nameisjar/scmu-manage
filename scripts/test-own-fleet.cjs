@@ -60,8 +60,9 @@ async function main() {
   assert.ok(finance.internalExpenses.some(row => row.id === allowance.id && row.balance === '1000000.00'));
   for (const shipment of [pickup, sea, delivery]) await request(`/shipments/${shipment.id}/tracking`, admin, { eventType: 'DELIVERED', location: shipment.destCity });
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1kAAAAASUVORK5CYII=', 'base64');
+  await require('./sea-test-support.cjs').complete(request, admin, jobId);
   current = await request(base, admin);
-  for (const document of current.documents.filter(document => document.required)) {
+  for (const document of current.documents.filter(document => document.required && document.status !== 'VERIFIED' && !['BILL_OF_LADING','SEA_WAYBILL'].includes(document.type))) {
     const form = new FormData(); form.append('file', new Blob([png], { type: 'image/png' }), 'proof.png');
     const response = await fetch(`${api}/api${base}/documents/${document.id}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${admin}` }, body: form });
     assert.equal(response.status, 200); await request(`${base}/documents/${document.id}/verify`, superAdmin, {});
@@ -75,10 +76,12 @@ async function main() {
 async function cleanup() {
   await request.cleanup(prisma);
   if (jobId) {
+    await require('./sea-test-support.cjs').cleanup(prisma, [jobId]);
     const documents = await prisma.jobDocument.findMany({ where: { jobId } });
     const files = require('../backend/src/services/jobFiles');
     for (const document of documents) if (document.filename) await files.removeFile(document.filename);
     await prisma.jobPayment.deleteMany({ where: { jobId } }); await prisma.invoice.deleteMany({ where: { jobId } });
+    await prisma.packingList.deleteMany({ where: { jobId } });
     await prisma.jobDocument.deleteMany({ where: { jobId } }); await prisma.jobCharge.deleteMany({ where: { jobId } });
     await prisma.trackingEvent.deleteMany({ where: { shipment: { jobId } } }); await prisma.shipment.deleteMany({ where: { jobId } });
     await prisma.jobOrder.delete({ where: { id: jobId } }); await prisma.activityLog.deleteMany({ where: { entityId: jobId } });

@@ -11,6 +11,14 @@ export function StatusBadge({ status }) {
   const map = {
     // Shipments
     PENDING: 'badge-zinc',
+    SEA_NOT_RECEIVED: 'badge-zinc',
+    SEA_DRAFT_RECEIVED: 'badge-blue',
+    SEA_FINAL_RECEIVED: 'badge-blue',
+    SEA_UNCHECKED: 'badge-zinc',
+    SEA_CORRECTION: 'badge-red',
+    SEA_MATCHED: 'badge-green',
+    SEA_RELEASE_PENDING: 'badge-zinc',
+    SEA_RELEASE_CONFIRMED: 'badge-green',
     ASSIGNED: 'badge-blue',
     IN_TRANSIT: 'badge-brand',
     REACHED_DESTINATION: 'badge-purple',

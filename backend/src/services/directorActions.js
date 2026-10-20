@@ -1,5 +1,5 @@
 const { fail, text, decimal, integer, date, choice, money, number, mutableJob, vendor, quotationTotals, jobInclude, financials, checkJobClosure, closeJob, syncJob, audit } = require('./jpt');
-const { packingInclude, requireDraft, packingJob, touchHeader, validateSources } = require('./packing');
+const { packingInclude, requireDraft, packingJob, touchHeader, validateSources, requireSummaryReview } = require('./packing');
 const { headerInclude, requireHeaderDraft, presentHeader } = require('./packingHeader');
 const { costFields, transportChange } = require('./transport');
 const { prepareLeg, createLeg } = require('./jobTransport');
@@ -15,7 +15,7 @@ async function loadAction(tx, action, entityId, body = {}) {
   if (['PACKING_FINALIZE', 'PACKING_EXCEPTION'].includes(action)) {
     raw = await tx.packingList.findUnique({ where: { id: entityId }, include: packingInclude }); requireDraft(raw, body.version);
     await packingJob(tx, raw.jobId, raw.direction); jobId = raw.jobId;
-    if (action === 'PACKING_EXCEPTION') fail(raw.direction === 'INBOUND' && raw.receiptStatus === 'DISCREPANCY' && raw.discrepancyNotes && raw.document.filename, 'Record the original document and receipt discrepancy first', 409);
+    if (action === 'PACKING_EXCEPTION') { fail(raw.direction === 'INBOUND' && raw.receiptStatus === 'DISCREPANCY' && raw.discrepancyNotes && raw.document.filename, 'Record the original document and receipt discrepancy first', 409); requireSummaryReview(raw); }
     else {
       fail(raw.direction === 'OUTBOUND', 'Use routine receipt verification for incoming documents');
       fail(raw.items.length && raw.grossWeightKg.gt(0) && raw.recipientAddress, 'Complete item rows, gross weight and recipient address before finalizing', 409);
@@ -29,8 +29,23 @@ async function loadAction(tx, action, entityId, body = {}) {
     fail(raw.packingLists.length && raw.packingLists.every(row => row.status === 'FINAL' && row.document.filename && row.receiptStatus !== 'PENDING'), 'Complete and finalize receipt for every selected packing list', 409);
     fail(await tx.packingList.count({ where: { jobId, direction: 'INBOUND' } }) === raw.packingLists.length, 'Include every original packing list in this receiving job before finalizing', 409);
     payload = { version: raw.version }; const summary = presentHeader(raw).summary;
-    overview = [...basics(job), ...fields([['Internal reference', raw.headerNumber], ['Original documents', summary.documentCount], ['Packages', summary.packages], ['Gross weight (kg)', summary.grossWeightKg], ['Volume (CBM)', summary.volumeCbm], ['Receipt discrepancy', summary.discrepancyDocuments], ['Notes', raw.notes]])];
-    tables.push(table('Original documents', [['externalNumber','Original packing list number'],['senderName','Sender'],['packages','Declared packages'],['actualPackages','Actual packages'],['receiptStatus','Receipt status'],['discrepancyNotes','Discrepancy notes']], raw.packingLists));
+    overview = [...basics(job), ...fields([['Internal reference', raw.headerNumber], ['Original documents', summary.documentCount], ['Packages', summary.packages], ['Gross weight (kg)', summary.grossWeightKg ?? 'Not stated'], ['Volume (CBM)', summary.volumeCbm ?? 'Not stated'], ['Documents missing gross weight', summary.missingDocuments.grossWeightKg], ['Documents missing volume', summary.missingDocuments.volumeCbm], ['Receipt discrepancy', summary.discrepancyDocuments], ['Notes', raw.notes]])];
+    tables.push(table('Original documents', [['externalNumber','Original packing list number'],['senderName','Sender'],['packages','Declared packages'],['grossWeightKg','Gross weight (kg)'],['volumeCbm','Volume (CBM)'],['actualPackages','Actual packages'],['receiptStatus','Receipt status'],['discrepancyNotes','Discrepancy notes']], raw.packingLists));
+  } else if (action === 'SEA_BILL_EXCEPTION') {
+    const sea = require('./seaBills');
+    const entity = await tx.seaBill.findUnique({ where: { id: entityId }, select: { jobId: true } }); fail(entity, 'Sea transport document not found', 404);
+    raw = await sea.verification(tx, entity.jobId, entityId, body); fail(raw.issues.length, 'Routine BL checks can be completed by Admin without director approval', 409);
+    jobId = entity.jobId; payload = { version: raw.bill.version, checks: raw.checks, note: text(body.note, 'BL exception explanation', 2000) };
+    overview = fields([['BL number',raw.bill.billNumber],['Original filename',raw.bill.files.find(file=>file.category==='FINAL'&&file.contentVersion===raw.bill.contentVersion)?.originalName],['Carrier / issuing agent',raw.bill.carrierName],['Vessel name',raw.bill.vesselName],['Voyage number',raw.bill.voyageNumber],['Port of loading',raw.bill.portOfLoading],['Port of discharge',raw.bill.portOfDischarge],['Shipper on document',raw.bill.shipperName],['Consignee on document',raw.bill.consigneeName],['Review issues',raw.bill.reviewIssues],['Exception explanation',payload.note]]);
+    tables.push(table('BL review findings', [['finding','Finding']], raw.issues.map(finding=>({finding}))));
+    tables.push(table('BL cargo links', [['reference','Packing list'],['packages','Packages'],['grossWeightKg','Gross weight (kg)'],['volumeCbm','Volume (CBM)'],['scope','Cargo scope / marks']], raw.bill.allocations.map(row=>({...row,reference:row.packingList.externalNumber || row.packingList.recordNumber}))));
+    if(raw.bill.approvedSnapshot) {
+      const labels={billNumber:'BL number',documentKind:'Sea document type',issueDate:'Issue date',carrierName:'Carrier / issuing agent',vesselName:'Vessel name',voyageNumber:'Voyage number',portOfLoading:'Port of loading',portOfDischarge:'Port of discharge',shipperName:'Shipper on document',consigneeName:'Consignee on document',packages:'Packages',grossWeightKg:'Gross weight (kg)',volumeCbm:'Volume (CBM)'};
+      tables.push(table('BL material changes', [['field','Field'],['previous','Previously verified value'],['proposed','Submitted value']], Object.entries(labels).map(([key,label])=>({field:label,previous:raw.bill.approvedSnapshot[key]??'—',proposed:key==='issueDate'?raw.bill.issueDate?.toISOString():String(raw.bill[key]??'—')}))));
+      tables.push(table('Previously verified cargo', [['reference','Packing list'],['packages','Packages'],['grossWeightKg','Gross weight (kg)'],['volumeCbm','Volume (CBM)'],['scope','Cargo scope / marks']], (raw.bill.approvedSnapshot.allocations||[]).map(row=>({...row,reference:row.declaredSnapshot?.externalNumber||'—'}))));
+    }
+    tables.push(table('BL attachments', [['category','Attachment category'],['originalName','Original filename'],['contentVersion','File version']], raw.bill.files));
+    targetUrl = `/jobs/${jobId}?tab=sea`;
   } else if (action === 'SALES_QUOTATION_APPROVE') {
     raw = await tx.salesQuotation.findUnique({ where: { id: entityId }, include: { items: { orderBy: { id: 'asc' } }, customer: true } });
     fail(raw, 'Customer quotation not found', 404); fail(raw.status === 'DRAFT', 'Only draft quotations can be submitted', 409); fail(raw.validUntil > new Date(), 'This quotation has expired', 409);
@@ -98,12 +113,13 @@ async function applyAction(tx, user, approval, context) {
     case 'SALES_QUOTATION_APPROVE': result = await tx.salesQuotation.update({ where: { id: raw.id }, data: { status: 'APPROVED' } }); break;
     case 'CHARGE_APPROVE': result = await tx.jobCharge.update({ where: { id: raw.id }, data: { status: 'APPROVED', actualAmount: decimal(payload.actualAmount), approvedById: user.id, approvedAt: new Date() } }); break;
     case 'DOCUMENT_VERIFY': result = await tx.jobDocument.update({ where: { id: raw.id }, data: { status: 'VERIFIED', verifiedById: user.id } }); break;
+    case 'SEA_BILL_EXCEPTION': result = await require('./seaBills').markMatched(tx, user, raw, payload.note, 'SEA_BILL_EXCEPTION_APPROVED'); break;
     case 'VENDOR_AWARD':
       await tx.rFQ.update({ where: { id: raw.rfq.id }, data: { status: 'AWARDED', awardedQuoteId: raw.quote.id } });
       result = await tx.quote.update({ where: { id: raw.quote.id }, data: { status: 'ACCEPTED' } });
       await tx.quote.updateMany({ where: { rfqId: raw.rfq.id, id: { not: raw.quote.id } }, data: { status: 'REJECTED' } }); break;
     case 'TRANSPORT_BOOK': result = await createLeg(tx, user, raw); break;
-    case 'TRANSPORT_CHANGE': result = await tx.shipment.update({ where: { id: raw.shipment.id }, data: raw.data }); await syncJob(tx, jobId); break;
+    case 'TRANSPORT_CHANGE': result = await tx.shipment.update({ where: { id: raw.shipment.id }, data: raw.data }); if(jobId) await require('./seaBills').transportChanged(tx,user,raw.shipment,result); await syncJob(tx, jobId); break;
     case 'PAYMENT_AUTHORIZE': return null;
     case 'JOB_CLOSE': result = await closeJob(tx, raw); break;
     case 'CLAIM_DECISION': result = await tx.jobOperation.update({ where: { id: raw.id }, data: payload }); break;

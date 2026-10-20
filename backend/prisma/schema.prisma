@@ -289,6 +289,7 @@ model Shipment {
   carrierId       String?
   carrier         Company?       @relation("CarrierCompany", fields: [carrierId], references: [id])
   bookingNumber   String?
+  seaBills        SeaBill[]
   vesselFlight    String?
   containerNumber String?
   sealNumber      String?
@@ -565,6 +566,7 @@ model JobOrder {
   packingLists    PackingList[]
   packingHeader   PackingHeader?
   approvals       DirectorApproval[]
+  seaBills        SeaBill[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -622,6 +624,7 @@ model JobDocument {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   packingList PackingList?
+  seaBill     SeaBill?
 
   @@index([jobId, status])
   @@map("job_documents")
@@ -669,9 +672,11 @@ model PackingList {
   companyPhone    String?
   companyEmail    String?
   packages        Int @default(0)
-  netWeightKg     Decimal @default(0) @db.Decimal(16, 3)
-  grossWeightKg   Decimal @default(0) @db.Decimal(16, 3)
-  volumeCbm       Decimal @default(0) @db.Decimal(16, 4)
+  netWeightKg     Decimal? @db.Decimal(16, 3)
+  grossWeightKg   Decimal? @db.Decimal(16, 3)
+  volumeCbm       Decimal? @db.Decimal(16, 4)
+  summaryCheckedAt DateTime?
+  summaryCheckedById String?
   receiptStatus   ReceiptStatus?
   receivedAt      DateTime?
   receivedBy      String?
@@ -688,11 +693,113 @@ model PackingList {
   items           PackingListItem[]
   sources         PackingListSource[] @relation("PackingSources")
   usedBy          PackingListSource[] @relation("PackingUsedBy")
+  seaCargo        SeaBillCargo[]
 
   @@unique([jobId, direction, senderName, externalNumber])
   @@index([jobId, direction, status])
   @@index([headerId])
   @@map("packing_lists")
+}
+
+model SeaBill {
+  id              String @id @default(uuid())
+  jobId           String
+  job             JobOrder @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  shipmentId      String
+  shipment        Shipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  documentId      String @unique
+  document        JobDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  documentKind    String @default("BILL_OF_LADING")
+  billNumber      String?
+  issueDate       DateTime?
+  carrierName     String?
+  vesselName      String?
+  voyageNumber    String?
+  portOfLoading   String?
+  portOfDischarge String?
+  shipperName     String?
+  consigneeName   String?
+  containers      Json @default("[]")
+  packages        Int @default(0)
+  grossWeightKg   Decimal @default(0) @db.Decimal(16, 3)
+  volumeCbm       Decimal @default(0) @db.Decimal(16, 4)
+  notes           String?
+  reviewIssues    String?
+  internalStatus  String @default("SEA_UNCHECKED")
+  version         Int @default(1)
+  contentVersion  Int @default(1)
+  reviewedContentVersion Int?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewChecks    Json?
+  approvedSnapshot Json?
+  releaseStatus   String @default("SEA_RELEASE_PENDING")
+  releaseMethod   String?
+  releaseReference String?
+  releaseNote     String?
+  releaseProofId  String?
+  releasedAt      DateTime?
+  releasedById    String?
+  allocations     SeaBillCargo[]
+  files           SeaBillFile[]
+  history         SeaBillRevision[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([jobId, shipmentId])
+  @@map("sea_bills")
+}
+
+model SeaBillCargo {
+  id              String @id @default(uuid())
+  billId          String
+  bill            SeaBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  packingListId   String
+  packingList     PackingList @relation(fields: [packingListId], references: [id], onDelete: Restrict)
+  packages        Int
+  grossWeightKg   Decimal? @db.Decimal(16, 3)
+  volumeCbm       Decimal? @db.Decimal(16, 4)
+  scope           String?
+  declaredSnapshot Json
+
+  @@unique([billId, packingListId])
+  @@index([packingListId])
+  @@map("sea_bill_cargo")
+}
+
+model SeaBillFile {
+  id              String @id @default(uuid())
+  billId          String
+  bill            SeaBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  category        String
+  contentVersion  Int
+  filename        String
+  originalName    String
+  mimeType        String
+  size            Int
+  externalNumber  String?
+  documentDate    DateTime?
+  note            String?
+  uploadedById    String?
+  createdAt       DateTime @default(now())
+
+  @@index([billId, createdAt])
+  @@map("sea_bill_files")
+}
+
+model SeaBillRevision {
+  id              String @id @default(uuid())
+  billId          String
+  bill            SeaBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  version         Int
+  action          String
+  snapshot        Json
+  createdById     String?
+  note            String?
+  createdAt       DateTime @default(now())
+
+  @@unique([billId, version])
+  @@map("sea_bill_revisions")
 }
 
 model PackingHeader {

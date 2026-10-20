@@ -9,6 +9,7 @@ const router = express.Router();
 router.use(authenticate, authorize(...STAFF));
 router.use('/:jobId/packing-lists', require('./packingLists'));
 router.use('/:jobId/packing-header', require('./packingHeader'));
+router.use('/:jobId/sea-bills', require('./seaBills'));
 
 router.get('/', route(async (req, res) => {
   const where = { ...(req.query.status && { status: choice(req.query.status, ['BOOKED', 'IN_PROGRESS', 'DELIVERED', 'CLOSED', 'CANCELLED']) }),
@@ -124,6 +125,7 @@ router.put('/:id/charges/:chargeId', authorize(...OPERATORS), route(async (req, 
 router.post('/:id/charges/:chargeId/review', route(async () => fail(false, 'Submit this action for director approval', 403)));
 
 router.post('/:id/documents', authorize(...OPERATORS), route(async (req, res) => {
+  fail(!['BILL_OF_LADING','SEA_WAYBILL'].includes(req.body.type), 'Manage BL and sea waybills from the sea transport documents tab', 409);
   const result = await transaction(async tx => {
     await mutableJob(tx, req.params.id);
     fail(req.body.required === undefined || typeof req.body.required === 'boolean', 'Required must be true or false');
@@ -140,6 +142,7 @@ router.post('/:id/documents/:documentId/upload', authorize(...OPERATORS), upload
   const record = await prisma.jobDocument.findFirst({ where: { id: req.params.documentId, jobId: req.params.id }, include: { packingList: true } });
   fail(record, 'Document not found', 404);
   fail(!record.packingList, 'Manage this document from the packing list tab', 409);
+  fail(!['BILL_OF_LADING','SEA_WAYBILL'].includes(record.type), 'Manage BL and sea waybills from the sea transport documents tab', 409);
   await new Promise((resolve, reject) => files.upload(req, res, error => error ? reject(error) : resolve()));
   try {
     await files.validateFile(req.file);
@@ -161,6 +164,7 @@ router.post('/:id/documents/:documentId/verify', authorize(...FINANCE), route(as
     const job = await mutableJob(tx, req.params.id);
     const record = await tx.jobDocument.findFirst({ where: { id: req.params.documentId, jobId: req.params.id }, include: { packingList: true } });
     fail(!record?.packingList, 'Manage this document from the packing list tab', 409);
+    fail(!['BILL_OF_LADING','SEA_WAYBILL'].includes(record?.type), 'Manage BL and sea waybills from the sea transport documents tab', 409);
     fail(!(job.jobType === 'SENDER' && record?.type === 'PACKING_LIST'), 'Submit this action for director approval', 403);
     fail(record && record.filename && record.status === 'UPLOADED', 'Upload a document before verification', 409);
     const updated = await tx.jobDocument.update({ where: { id: record.id }, data: { status: 'VERIFIED', verifiedById: req.user.id } });

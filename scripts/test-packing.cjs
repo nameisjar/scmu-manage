@@ -28,7 +28,7 @@ async function main() {
   await request(headBase, null, null, 'GET', 401); assert.equal((await request(headBase, admin)).data, null);
   const common = { documentDate: '2026-10-19', recipientName: 'Perusahaan A Surabaya', recipientAddress: 'Gudang Surabaya', originCity: 'Surabaya', destCity: 'Merauke' };
   const item = { description: 'Equipment', quantity: 4, unit: 'UNIT', packages: 2, netWeightKg: '10.125', grossWeightKg: '12.125', lengthCm: 100, widthCm: 50, heightCm: 50, volumeCbm: 999 };
-  const original = index => ({ ...common, direction: 'INBOUND', externalNumber: `PL-A-${marker}-${index}`, senderName: 'Perusahaan A Surabaya', packages: [10, 15, 5][index], netWeightKg: [1100, 1650, 550][index], grossWeightKg: [1200, 1800, 600][index], volumeCbm: [6.5, 9.75, 3.25][index], receiptStatus: 'PENDING' });
+  const original = index => ({ ...common, direction: 'INBOUND', summaryConfirmed: true, externalNumber: `PL-A-${marker}-${index}`, senderName: 'Perusahaan A Surabaya', packages: [10, 15, 5][index], netWeightKg: [1100, 1650, 550][index], grossWeightKg: [1200, 1800, 600][index], volumeCbm: [6.5, 9.75, 3.25][index], receiptStatus: 'PENDING' });
   const snapshot = async () => ({ files: (await fs.readdir(fileDirectory)).sort(), records: await prisma.packingList.count({ where: { jobId: { in: jobs } } }), headers: await prisma.packingHeader.count({ where: { jobId: { in: jobs } } }), documents: await prisma.jobDocument.count({ where: { jobId: { in: jobs } } }), audits: await prisma.activityLog.count({ where: { entity: 'JobOrder', entityId: { in: jobs } } }) });
   const unchanged = async (endpoint, body, status) => { const before = await snapshot(); await request(endpoint, admin, body, 'POST', status); assert.deepEqual(await snapshot(), before, 'Rejected create must leave no file, record, document or audit'); };
   await unchanged(base, original(0), 422);
@@ -73,7 +73,7 @@ async function main() {
   await request(`${headBase}/finalize`, admin, { version: header.version }, 'POST', 409);
   await request(`/jobs/${receiver.id}/close`, admin, {}, 'POST', 409);
   for (let index = 0; index < rows.length; index++) {
-    const row = rows[index]; const receipt = { version: row.version, receiptStatus: 'RECEIVED', receivedAt: new Date().toISOString(), receivedBy: 'Petugas SCMU', actualPackages: row.packages, actualWeightKg: row.grossWeightKg };
+    const row = rows[index]; const receipt = { version: row.version, summaryConfirmed: true, receiptStatus: 'RECEIVED', receivedAt: new Date().toISOString(), receivedBy: 'Petugas SCMU', actualPackages: row.packages, actualWeightKg: row.grossWeightKg };
     if (index === 0) {
       await request(`${base}/${row.id}`, admin, { ...receipt, actualPackages: 8 }, 'PUT', 422);
       receipt.receiptStatus = 'DISCREPANCY'; receipt.actualPackages = 8;

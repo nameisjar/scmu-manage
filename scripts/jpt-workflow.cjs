@@ -65,11 +65,13 @@ async function main() {
   const privateDoc = await request(`${base}/documents`, operator, { title: 'Private cost attachment', type: 'OTHER', customerVisible: false });
   const bad = current.documents.find(row => row.status === 'PENDING');
   await request(`${base}/documents/${bad.id}/upload`, operator, upload(Buffer.from('not a png')), 'POST', 415);
-  for (const document of current.documents) {
+  await require('./sea-test-support.cjs').complete(request, operator, job.id);
+  current = await request(base, admin);
+  for (const document of current.documents.filter(row => row.status !== 'VERIFIED' && !['BILL_OF_LADING','SEA_WAYBILL'].includes(row.type))) {
     if (document.status === 'PENDING') await request(`${base}/documents/${document.id}/upload`, operator, upload());
     await request(`${base}/documents/${document.id}/verify`, admin, {});
   }
-  const verified = (await request(base, admin)).documents.find(row => row.status === 'VERIFIED');
+  const verified = (await request(base, admin)).documents.find(row => row.status === 'VERIFIED' && row.filename);
   const response = await fetch(`${origin}/api${base}/documents/${verified.id}/file`, { headers: { Authorization: `Bearer ${admin}` } });
   assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), png);
   await request(`${base}/close`, admin, {}, 'POST', 409); // Container still unreturned.
@@ -89,6 +91,8 @@ async function cleanup() {
   for (const pod of pods) await fs.unlink(path.join(__dirname, '../backend/uploads/pods', path.basename(pod.imageUrl))).catch(() => {});
   await prisma.jobPayment.deleteMany({ where: { jobId: { in: created.jobs } } });
   await prisma.invoice.deleteMany({ where: { jobId: { in: created.jobs } } });
+  await require('./sea-test-support.cjs').cleanup(prisma, created.jobs);
+  await prisma.packingList.deleteMany({ where: { jobId: { in: created.jobs } } });
   await prisma.jobDocument.deleteMany({ where: { jobId: { in: created.jobs } } });
   await prisma.trackingEvent.deleteMany({ where: { shipment: { jobId: { in: created.jobs } } } });
   await prisma.pOD.deleteMany({ where: { shipment: { jobId: { in: created.jobs } } } });

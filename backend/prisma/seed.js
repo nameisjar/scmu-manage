@@ -64,6 +64,7 @@ async function main() {
   await require('./seed-own-fleet')(prisma, admin);
   await require('./seed-packing')(prisma, admin);
   await require('./seed-director')(prisma, admin);
+  await require('./seed-sea')(prisma, admin);
   console.log('SCMU Merauke demo ready. Director: admin@scmu.local / Admin@1234; Admin: operasional@scmu.local / Ops@1234');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => prisma.$disconnect());

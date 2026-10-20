@@ -5,6 +5,7 @@ import { Button, DataTable, Fields, ModalForm, Notice, StatusBadge, useAction, u
 import { formatDate } from '../../utils/format.mjs';
 import { printPackingHeader } from './packingHeaderTemplate.mjs';
 import { ApprovalSubmit } from '../../components/jpt/DirectorApproval';
+import { packingNumber, packingSummaryValue } from './packingSummary.mjs';
 
 export default function PackingHeader({ job, records, onChange, onSelect }) {
   const { t, locale, language } = useLanguage(); const base = `/jobs/${job.id}/packing-header`; const resource = useResource(base);
@@ -21,13 +22,14 @@ export default function PackingHeader({ job, records, onChange, onSelect }) {
     else await api.delete(base, { data: { version: form.version } });
     resource.reload(); onChange();
   };
-  const number = value => Number(value || 0).toLocaleString(locale, { maximumFractionDigits: 4 });
+  const number = value => packingNumber(value, { t, locale });
   return <section className="card p-5 space-y-4" aria-label={t('Receiving packing header')}>
     <Notice message={resource.error || action.error} />
     <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold text-zinc-100">{t('Receiving packing header')}</h3><p className="mt-1 text-sm text-zinc-400">{t('Group selected original packing lists from this receiving job. Totals are calculated from the selected documents.')}</p></div>{header && <StatusBadge status={header.status} />}</div>
     {!header ? <>{editable && <Button disabled={!originals.length || resource.loading} onClick={() => open('create')}>{t('Create packing header')}</Button>}<p className="text-sm text-zinc-400">{t('Upload the sender packing lists first, then select them to create one packing header.')}</p></> : <>
       <div className="flex flex-wrap gap-5 text-sm text-zinc-300"><b className="text-brand-300">{header.headerNumber}</b><span>{formatDate(header.documentDate, locale)}</span><span>{header.originCity} → {header.destCity}</span><span>{t('Reference')}: {header.reference || '—'}</span></div>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-zinc-300">{[['Original documents', header.summary.documentCount], ['Packages', header.summary.packages], ['Net weight (kg)', header.summary.netWeightKg], ['Gross weight (kg)', header.summary.grossWeightKg], ['Volume (CBM)', header.summary.volumeCbm], ['Received documents', header.summary.receivedDocuments], ['Awaiting receipt', header.summary.pendingDocuments], ['Receipt discrepancy', header.summary.discrepancyDocuments]].map(([label, value]) => <div key={label}><p className="text-xs text-zinc-500">{t(label)}</p><b>{number(value)}</b></div>)}</div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-zinc-300">{[['Original documents', 'documentCount'], ['Packages', 'packages'], ['Net weight (kg)', 'netWeightKg'], ['Gross weight (kg)', 'grossWeightKg'], ['Volume (CBM)', 'volumeCbm'], ['Received documents', 'receivedDocuments'], ['Awaiting receipt', 'pendingDocuments'], ['Receipt discrepancy', 'discrepancyDocuments']].map(([label, key]) => <div key={key}><p className="text-xs text-zinc-500">{t(label)}</p><b className={header.summary.missingDocuments?.[key] ? 'text-amber-300' : ''}>{packingSummaryValue(header.summary, key, { t, locale })}</b></div>)}</div>
+      {Object.values(header.summary.missingDocuments || {}).some(Boolean) && <p className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-sm text-amber-200">{t('Some original documents do not state weight or volume. Partial totals cover only documents with stated values; they are not the total for all cargo.')}</p>}
       <DataTable rows={header.packingLists} columns={[
         { key: 'externalNumber', label: 'Original packing list number', render: row => <button className="text-brand-300 underline" type="button" onClick={() => onSelect(row.id)}>{row.externalNumber}</button> },
         { key: 'senderName', label: 'Sender' }, { key: 'packages', label: 'Declared packages' }, { key: 'grossWeightKg', label: 'Gross weight (kg)', render: row => number(row.grossWeightKg) }, { key: 'volumeCbm', label: 'Volume (CBM)', render: row => number(row.volumeCbm) },

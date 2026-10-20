@@ -204,6 +204,8 @@ node scripts/test-packing.cjs
 node scripts/test-modal-browser.mjs
 node scripts/test-navigation-browser.mjs
 node scripts/test-finance-browser.mjs
+node scripts/test-sea-bills.cjs
+node scripts/test-sea-browser.mjs
 ```
 
 Jalankan pemeriksaan pertama untuk validasi peran, penghapusan master/akun pelanggan,
@@ -226,6 +228,59 @@ gambar tersebut secara utuh dengan area tampilan yang mengurangi ruang kosong; i
 `scmu-favicon.svg` memakai bagian lambangnya. Kedua SVG menyertakan gambar di dalam file
 agar tetap tampil saat dokumen cetak diekspor tanpa koneksi.
 
+## Dokumen angkutan laut / BL
+
+Buka **Job order → SCMU-JOB-ARMADA-001 → Dokumen angkutan laut** untuk contoh
+`BL-SCMU-LAUT-DEMO-001`, rute Tanjung Perak, Surabaya ke Merauke. Contoh ini merupakan
+data simulasi yang menunggu dokumen asli dari pelayaran; aplikasi tidak menerbitkan BL.
+
+Pemesanan angkutan laut yang telah disetujui direktur otomatis membuat checklist BL.
+Admin menekan **Unggah BL**, memilih tahap pengiriman, lalu mengunggah PDF atau gambar
+yang diterima dari pelayaran/agen atau pengirim. Unggahan pertama dapat memakai checklist
+yang sudah tersedia atau membuat catatan file baru secara atomik. Pratinjau tersedia
+sebelum unggah dan pada detail dokumen; akses file tetap memerlukan autentikasi.
+
+Nomor BL, nama kapal, pelabuhan, pengirim/penerima, dan total dari isi BL tidak wajib
+diketik ulang untuk unggah maupun verifikasi. Isian lama tetap dipertahankan dan dapat
+diubah melalui **Data tambahan BL (opsional)** untuk keperluan pencarian/laporan.
+
+Setelah unggah, pilih packing list yang dicakup BL. Koli/berat/volume diisi otomatis dari
+packing list; cukup aktifkan **Hanya sebagian isi packing list ini** jika pengiriman dibagi,
+lalu isi alokasi dan tanda kemasan. Hubungan packing list dapat disimpan setelah unggah
+tanpa mengharuskan unggah ulang file BL yang sama. Sistem memeriksa batas alokasi per
+packing list dalam satu tahap angkutan laut, termasuk ketika dua permintaan disimpan
+bersamaan. Kepala packing list tetap menjadi rekap penerimaan dan tidak digantikan BL.
+
+Unggah draf/final, bukti pelepasan pelayaran, dan Delivery Order pada kategori masing-masing.
+DO mempunyai nomor dan tanggal sendiri. Seluruh file serta snapshot revisi dipertahankan.
+Lampiran lama tidak otomatis diklasifikasikan sebagai final atau bukti pelepasan.
+
+Admin mencocokkan lima pemeriksaan: pihak, kapal/rute, kontainer/segel, muatan, serta file
+final langsung melalui pratinjau file. File final dan hubungan packing list yang sesuai
+dapat diverifikasi Admin tanpa pengisian identitas BL. Selisih pada total tambahan yang
+sudah dicatat sebelumnya, masalah yang
+dilaporkan, atau perubahan penting setelah verifikasi diajukan sebagai **Pengecualian BL**.
+Direktur dapat menyetujui, mengembalikan, atau menolak; data berubah selama pengajuan
+menjadikan persetujuan lama tidak dapat dipakai. Perubahan data angkutan yang penting
+juga meminta pemeriksaan dokumen laut ulang.
+
+Gunakan **Unggah revisi BL** untuk menerima file revisi. Jika isi revisi mengubah penerima,
+tujuan atau muatan, tandai perubahan penting dan jelaskan alasannya agar masuk persetujuan
+direktur. Aplikasi tidak mengekstrak atau menilai isi PDF secara otomatis. Setiap versi file
+baru memerlukan pemeriksaan ulang dan membatalkan status pelepasan sebelumnya; bukti
+pelepasan harus sesuai versi file yang sedang berlaku. Data tambahan atau pemilihan
+packing list yang berubah juga meminta pemeriksaan ulang, tanpa menghapus file asli.
+
+Status penerimaan dokumen, pemeriksaan internal, dan konfirmasi pelepasan dipisahkan.
+Verifikasi atau persetujuan direktur tidak mengizinkan pengambilan barang secara otomatis.
+Catat konfirmasi aktual pelayaran/agen dengan referensi, tanggal, metode, catatan, dan
+lampiran bukti untuk revisi yang sedang berlaku. Job penerimaan dengan angkutan laut
+tidak dapat ditutup sebelum bukti pelepasan tercatat. DO tetap dokumen terpisah; bukti
+pelepasan lainnya dapat digunakan sesuai prosedur pelayaran yang berlaku.
+
+Tombol **Lihat** untuk BL dan riwayat revisi membuka modal. Form panjang dapat digulir
+dengan tombol aksi tetap terlihat. Semua kontrol tersedia dalam Bahasa Indonesia/Inggris.
+
 ## Menghentikan
 
 ```powershell
@@ -235,3 +290,33 @@ powershell -ExecutionPolicy Bypass -File .\scripts\stop-demo.ps1
 Database tetap tersimpan. Periksa `.demo/backend.err.log`, `.demo/frontend.err.log` dan
 http://localhost:5000/health bila ada masalah. Jika HTTP 429 muncul, ikuti waktu tunggu
 di login. Kuota API umum 300 permintaan/menit; login membatasi 10 percobaan gagal/15 menit.
+
+## Ringkasan packing list dari format pengirim yang berbeda
+
+Pada job **Penerima**, unggah PDF atau gambar asli, lalu isi ringkasan sambil melihat
+pratinjaunya. Untuk Excel, ekspor ke PDF dahulu. Isi nomor, pengirim, tanggal, jumlah
+koli dan pengukuran yang tercantum pada dokumen itu saja; rincian barang tidak perlu
+diketik ulang. Jumlah barang (pcs) tidak sama dengan jumlah koli. Berat dapat dimasukkan
+dalam kg atau ton metrik; sistem menyimpan dan merekapnya dalam kg.
+
+Berat bersih/kotor dan volume yang tidak dicantumkan harus dibiarkan kosong. Nilai
+tersebut disimpan sebagai `null`, berbeda dari nol yang secara eksplisit tertulis.
+Kepala packing list menampilkan **Tidak tercantum**, jumlah dokumen yang belum memiliki
+data, serta **Subtotal tersedia** jika hanya sebagian dokumen memiliki pengukuran.
+Penanda ini juga ikut pada cetakan PDF. File asli tidak diubah.
+
+Centang **Saya sudah memeriksa ringkasan ini dengan file asli** setelah membaca dokumen.
+Draf boleh disimpan tanpa centang, tetapi penerimaan belum bisa difinalkan. Pemeriksaan
+dicatat dengan waktu dan akun admin; perubahan ringkasan atau penggantian file
+membatalkannya. Data final lama dipertahankan tanpa menambahkan riwayat pemeriksaan
+yang tidak pernah dilakukan. Nomor yang sama dari pengirim berbeda diperbolehkan;
+duplikat nomor dan pengirim dalam satu job ditolak, termasuk perbedaan huruf besar/kecil.
+
+Hasil penerimaan aktual tetap terpisah dari ringkasan dokumen. Kepala final harus
+mencakup seluruh packing list dalam job, dengan penerimaan tiap dokumen selesai dan
+persetujuan direktur. Jika BL ditautkan ke packing list tanpa berat/volume, data kosong
+tetap dipertahankan dan pemeriksaannya masuk alur pengecualian direktur.
+
+Alur ini menggunakan pemeriksaan manual; OCR/pembacaan otomatis belum ditambahkan.
+Pengujian tambahan: `node scripts/test-packing-summaries.cjs` dan
+`node scripts/test-packing-summary-browser.mjs` (Chrome lokal).

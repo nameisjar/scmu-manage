@@ -5,7 +5,7 @@ const { uploadLimiter } = require('../middleware/rateLimiter');
 const files = require('../services/jobFiles');
 const { internalCompany } = require('../services/access');
 const { STAFF, route, fail, choice, number, transaction, audit, mutableJob, syncJob, text } = require('../services/jpt');
-const { packingData, validateSources, requireDraft, packingInclude, packingJob, touchHeader, matchingRoute } = require('../services/packing');
+const { packingData, validateSources, requireDraft, packingInclude, packingJob, touchHeader, matchingRoute, summaryReview, requireSummaryReview, validateOriginalIdentity } = require('../services/packing');
 const router = express.Router({ mergeParams: true });
 router.use(authorize(...STAFF));
 const recordFor = (tx, req) => tx.packingList.findFirst({ where: { id: req.params.packingId, jobId: req.params.jobId }, include: packingInclude });
@@ -31,7 +31,8 @@ router.post('/', (req, res, next) => req.is('multipart/form-data') ? uploadLimit
     result = await transaction(async tx => {
       const job = await packingJob(tx, req.params.jobId, direction); const company = await internalCompany(tx);
       const { fields, items, sourceIds } = packingData(direction, req.body, company);
-      if (direction === 'INBOUND') matchingRoute(fields, job);
+      if (direction === 'INBOUND') Object.assign(fields, summaryReview({}, fields, req.body.summaryConfirmed, req.user));
+      if (direction === 'INBOUND') { matchingRoute(fields, job); await validateOriginalIdentity(tx, job.id, fields); }
       await validateSources(tx, req.params.jobId, sourceIds);
       const recordNumber = number(direction === 'INBOUND' ? 'PL-ASAL' : 'PL-SCMU');
       let document = await tx.jobDocument.findFirst({ where: { jobId: req.params.jobId, type: 'PACKING_LIST', status: 'PENDING', filename: null, packingList: { is: null } }, orderBy: { createdAt: 'asc' } });
@@ -54,7 +55,8 @@ router.put('/:packingId', route(async (req, res) => {
     fail(!req.body.direction || req.body.direction === current.direction, 'Packing direction cannot be changed');
     const body = { ...current, ...req.body, items: req.body.items ?? current.items, sourceIds: req.body.sourceIds ?? current.sources.map(link => link.sourceId) };
     const { fields, items, sourceIds } = packingData(current.direction, body, await internalCompany(tx), current);
-    if (current.direction === 'INBOUND') matchingRoute(fields, job);
+    if (current.direction === 'INBOUND') Object.assign(fields, summaryReview(current, fields, req.body.summaryConfirmed, req.user));
+    if (current.direction === 'INBOUND') { matchingRoute(fields, job); await validateOriginalIdentity(tx, job.id, fields, current.id); }
     await validateSources(tx, req.params.jobId, sourceIds);
     await tx.packingListItem.deleteMany({ where: { packingListId: current.id } }); await tx.packingListSource.deleteMany({ where: { packingListId: current.id } });
     const updated = await tx.packingList.update({ where: { id: current.id }, data: { ...fields, version: { increment: 1 }, items: { create: items }, sources: { create: sourceIds.map(sourceId => ({ sourceId })) } }, include: packingInclude });
@@ -75,7 +77,7 @@ router.post('/:packingId/original', uploadLimiter, route(async (req, res) => {
       await mutableJob(tx, req.params.jobId); const current = await recordFor(tx, req); requireDraft(current, req.body.version);
       await packingJob(tx, req.params.jobId, current.direction);
       await tx.jobDocument.update({ where: { id: current.documentId }, data: { filename: req.file.filename, originalName: text(req.file.originalname, 'Filename', 255), mimeType: req.file.mimetype, size: req.file.size, status: 'UPLOADED', uploadedById: req.user.id, verifiedById: null } });
-      const updated = await tx.packingList.update({ where: { id: current.id }, data: { version: { increment: 1 } }, include: packingInclude });
+      const updated = await tx.packingList.update({ where: { id: current.id }, data: { version: { increment: 1 }, summaryCheckedAt: null, summaryCheckedById: null }, include: packingInclude });
       await touchHeader(tx, current.jobId, current.direction); await syncJob(tx, current.jobId);
       await audit(tx, req.user, 'PACKING_ORIGINAL_UPLOADED', 'JobOrder', req.params.jobId, { packingId: current.id }); return { record: updated, oldFilename: current.document.filename };
     });
@@ -87,6 +89,7 @@ router.post('/:packingId/finalize', route(async (req, res) => {
     await mutableJob(tx, req.params.jobId); const current = await recordFor(tx, req); requireDraft(current, req.body.version);
     await packingJob(tx, req.params.jobId, current.direction);
     if (current.direction === 'INBOUND') {
+      requireSummaryReview(current);
       fail(current.receiptStatus !== 'DISCREPANCY', 'Submit receipt discrepancies for director approval', 403);
       fail(current.document.filename, 'Attach the original packing list before finalizing', 409);
       fail(current.receiptStatus !== 'PENDING', 'Record the receipt result before finalizing', 409);
@@ -103,6 +106,7 @@ router.delete('/:packingId', route(async (req, res) => {
   const filename = await transaction(async tx => {
     await mutableJob(tx, req.params.jobId); const current = await recordFor(tx, req); requireDraft(current, req.body.version);
     await packingJob(tx, req.params.jobId, current.direction);
+    fail(!await tx.seaBillCargo.count({ where: { packingListId: current.id } }), 'Remove this packing list from its BL cargo links before deleting', 409);
     await tx.packingList.delete({ where: { id: current.id } }); await tx.jobDocument.delete({ where: { id: current.documentId } });
     if (!await tx.jobDocument.count({ where: { jobId: req.params.jobId, type: 'PACKING_LIST' } })) await tx.jobDocument.create({ data: { jobId: req.params.jobId, type: 'PACKING_LIST', title: 'Packing list', required: true, customerVisible: false } });
     await touchHeader(tx, current.jobId, current.direction); await syncJob(tx, current.jobId);
