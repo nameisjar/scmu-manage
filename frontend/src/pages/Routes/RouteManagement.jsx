@@ -1,26 +1,21 @@
 import { useLanguage } from '../../i18n/LanguageContext';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Map, Plus } from 'lucide-react';
 import api from '../../api/client';
+import Pagination from '../../components/common/Pagination';
+import { usePagedResource, Notice } from '../../components/jpt/Workspace';
+import { usePageQuery } from '../../components/Layout/PageNavigation';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader, Button, SearchInput, EmptyState, Spinner, Modal, FormField } from '../../components/common';
 
 export default function RouteManagement() {
   const { t: tr } = useLanguage();
-  const [routes, setRoutes] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [search, setSearch] = useState('');
+  const [query,setQuery]=usePageQuery();const search=query.get('search')||'';const setSearch=search=>setQuery({search,page:null});
+  const resource=usePagedResource('/routes',{search});const routes=resource.rows;const loading=resource.loading;const load=resource.reload;
   const [form, setForm] = useState({ name: '', originCity: '', originState: '', destCity: '', destState: '', distanceKm: '', estimatedDays: '' });
   const { canManage } = useAuth();
-
-  const load = () => {
-    setLoading(true);
-    api.get('/routes').then(r => setRoutes(r.data)).finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, []);
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -35,15 +30,16 @@ export default function RouteManagement() {
     } finally { setSubmitting(false); }
   };
 
-  const filtered = routes.filter(r => !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.originCity.toLowerCase().includes(search.toLowerCase()) || r.destCity.toLowerCase().includes(search.toLowerCase()));
+  const filtered = routes;
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <PageHeader title={tr("Route Management")} subtitle={tr("{count} routes defined", { count: routes.length })}
+      <PageHeader title={tr("Route Management")} subtitle={tr("{count} routes defined", { count: resource.pagination.total })}
         action={canManage() && <Button onClick={() => setShowModal(true)}><Plus size={16} /> {tr("Add Route")}</Button>} />
 
       <SearchInput value={search} onChange={setSearch} placeholder={tr("Search routes...")} />
 
+      <Notice message={resource.error} />
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -69,6 +65,7 @@ export default function RouteManagement() {
             </tbody>
           </table>
         </div>
+        <Pagination {...resource.pagination} />
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={tr("Add Route")}>

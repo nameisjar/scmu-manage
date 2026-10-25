@@ -3,23 +3,38 @@ import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { Button, Modal, Spinner, StatusBadge } from '../common';
+import Pagination, { usePagination, usePageCorrection } from '../common/Pagination';
+import { pageInfo } from '../common/paginationState.mjs';
 
 export function useResource(url) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(Boolean(url));
   const [error, setError] = useState('');
   const [version, setVersion] = useState(0);
+  const [loadedUrl, setLoadedUrl] = useState(null);
   const reload = useCallback(() => setVersion(value => value + 1), []);
   useEffect(() => {
     if (!url) { setLoading(false); return; }
     const controller = new AbortController();
     setLoading(true); setError('');
-    api.get(url, { signal: controller.signal }).then(response => setData(response.data)).catch(error => {
+    api.get(url, { signal: controller.signal }).then(response => { setData(response.data); setLoadedUrl(url); }).catch(error => {
       if (error.code !== 'ERR_CANCELED') setError(error.response?.data?.message || error.message);
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [url, version]);
-  return { data, loading, error, reload, update: setData };
+  return { data, loading, error, reload, update: setData, loadedUrl };
+}
+export function usePagedResource(path, filters = {}, scope = '') {
+  const paging=usePagination(scope);const search=useDebouncedValue(filters.search);const pending=search!==filters.search;
+  const query=new URLSearchParams(Object.entries({...filters,...(filters.search!==undefined?{search}:{}),...paging.params}).filter(([,value])=>value!==''&&value!==null&&value!==undefined));
+  const url=path?`${path}?${query}`:null;const resource=useResource(url);const ready=resource.loadedUrl===url&&!!resource.data;const total=ready?resource.data.total:0;
+  useEffect(()=>{if(ready&&!pending&&!resource.loading&&resource.data.page!==paging.page)paging.onPageChange(resource.data.page);},[ready,pending,resource.loading,resource.data?.page,paging.page,paging.onPageChange]);
+  return {...resource,loading:pending||resource.loading||(!ready&&!resource.error&&!!path),rows:ready?resource.data.data:[],pagination:{...paging,total,page:ready?resource.data.page:paging.page,server:true,loading:pending||resource.loading||(!ready&&!resource.error&&!!path)}};
+}
+export function useDebouncedValue(value, delay=300) {
+  const [settled,setSettled]=useState(value);
+  useEffect(()=>{const timer=setTimeout(()=>setSettled(value),delay);return()=>clearTimeout(timer);},[value,delay]);
+  return settled;
 }
 export function useAction(reload) {
   const [busy, setBusy] = useState(false);
@@ -85,11 +100,23 @@ export function DetailModal({ title, onClose, children, actions, width = 'max-w-
     </div>
   }>{children}</Modal>;
 }
-export function DataTable({ columns, rows, empty = 'No records yet' }) {
+export function DataTable({ paginationKey, ...props }) {
+  return paginationKey ? <UrlDataTable {...props} paginationKey={paginationKey} /> : <TableBody {...props} />;
+}
+function UrlDataTable({paginationKey,rows,...props}) {
+  const paging=usePagination(paginationKey);usePageCorrection(paging,rows.length);
+  return <TableBody {...props} rows={rows} pagination={{...paging,total:rows.length}} />;
+}
+function TableBody({ columns, rows, empty = 'No records yet', pagination, resetKey }) {
   const { t } = useLanguage();
-  return <div className="card overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-zinc-800">
+  const [page,setPage]=useState(1);const [limit,setLimit]=useState(10);
+  useEffect(()=>setPage(1),[resetKey]);
+  const paging=pagination||{page,limit,total:rows.length,onPageChange:setPage,onLimitChange:value=>{setLimit(value);setPage(1);}};
+  const info=pageInfo(paging.total,paging.page,paging.limit);const visible=pagination===false||paging.server?rows:rows.slice((info.page-1)*paging.limit,info.page*paging.limit);
+  useEffect(()=>{if(!pagination&&page!==info.page)setPage(info.page);},[pagination,page,info.page]);
+  return <div className="card overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm" aria-busy={paging.loading}><thead><tr className="border-b border-zinc-800">
     {columns.map(column => <th key={column.key} className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 ${column.align === 'right' ? 'text-right' : 'text-left'} ${column.className || ''}`}>{t(column.label)}</th>)}
-  </tr></thead><tbody className="divide-y divide-zinc-800/60">{rows.length ? rows.map(row => <tr key={row.id} className="hover:bg-zinc-900/40">{columns.map(column => <td key={column.key} className={`px-4 py-3 text-zinc-300 align-top ${column.align === 'right' ? 'text-right' : ''} ${column.className || ''}`}>{column.render ? column.render(row) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-zinc-500">{t(empty)}</td></tr>}</tbody></table></div>;
+  </tr></thead><tbody className="divide-y divide-zinc-800/60">{paging.loading?<tr><td colSpan={columns.length}><Spinner /></td></tr>:visible.length ? visible.map((row,index) => <tr key={row.id??index} className="hover:bg-zinc-900/40">{columns.map(column => <td key={column.key} className={`px-4 py-3 text-zinc-300 align-top ${column.align === 'right' ? 'text-right' : ''} ${column.className || ''}`}>{column.render ? column.render(row) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-zinc-500">{t(empty)}</td></tr>}</tbody></table></div>{pagination!==false&&<Pagination {...paging} page={info.page} />}</div>;
 }
 export function Tabs({ items, value, onChange }) {
   const { t } = useLanguage();

@@ -17,6 +17,7 @@ const {
 
 const router = express.Router();
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const { transportFields } = require('../services/transport');
 
 // ── File upload: validate MIME type, not just extension ───────────────────────
@@ -53,7 +54,6 @@ function generateShipmentNumber() {
 router.get('/', authenticate, paginationRules, validate, async (req, res, next) => {
   try {
     const { page = 1, limit = 20, status, search } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
 
     const where = {
       ...(status && { status }),
@@ -66,9 +66,8 @@ router.get('/', authenticate, paginationRules, validate, async (req, res, next) 
       }),
     };
 
-    const [shipments, total] = await Promise.all([
-      prisma.shipment.findMany({
-        where, skip, take: Number(limit),
+    const result = await listPage(prisma.shipment, {
+        where,
         include: {
           shipper: { select: { id: true, name: true } },
           vehicle: { select: { id: true, registrationNo: true, type: true } },
@@ -77,12 +76,10 @@ router.get('/', authenticate, paginationRules, validate, async (req, res, next) 
           _count: { select: { trackingEvents: true, pods: true } },
           job: { select: { id: true, jobNumber: true } },
         },
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.shipment.count({ where }),
-    ]);
-
-    res.json({ data: shipments, total, page: Number(page), limit: Number(limit) });
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      }, { page, limit });
+    const shipments = result.data;
+    res.json({ ...result, data: shipments });
   } catch (err) { next(err); }
 });
 

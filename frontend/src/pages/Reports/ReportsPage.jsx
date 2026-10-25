@@ -1,6 +1,9 @@
 import { formatMoney } from '../../utils/format.mjs';
 import { useLanguage } from '../../i18n/LanguageContext';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
+import Pagination, { usePagination, usePageCorrection } from '../../components/common/Pagination';
+import { pageInfo } from '../../components/common/paginationState.mjs';
 import { FileBarChart, Download, Printer, TrendingUp, Package, Receipt } from 'lucide-react';
 import api from '../../api/client';
 import { PageHeader, Button, StatusBadge, Spinner } from '../../components/common';
@@ -42,8 +45,13 @@ export default function ReportsPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const paging=usePagination('report');const [printing,setPrinting]=useState(false);
+  const records=data?.[tab]||[];const info=pageInfo(records.length,paging.page,paging.limit);usePageCorrection(paging,records.length,!!data&&!loading);
+  const visibleRecords=printing?records:records.slice((info.page-1)*paging.limit,info.page*paging.limit);
+  useEffect(()=>{const before=()=>flushSync(()=>setPrinting(true));const after=()=>setPrinting(false);window.addEventListener('beforeprint',before);window.addEventListener('afterprint',after);return()=>{window.removeEventListener('beforeprint',before);window.removeEventListener('afterprint',after);};},[]);
 
   const generate = async () => {
+    paging.onPageChange(1);
     setLoading(true);
     setError('');
     setData(null);
@@ -187,7 +195,7 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
-                    {data.invoices.map(inv => (
+                    {visibleRecords.map(inv => (
                       <tr key={inv.id} className="hover:bg-zinc-900/40">
                         <td className="px-4 py-2.5 font-mono text-xs text-brand-400">{inv.invoiceNumber}</td>
                         <td className="px-4 py-2.5 text-xs text-zinc-300">{inv.company?.name}</td>
@@ -221,7 +229,7 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
-                    {data.shipments.map(s => (
+                    {visibleRecords.map(s => (
                       <tr key={s.id} className="hover:bg-zinc-900/40">
                         <td className="px-4 py-2.5 font-mono text-xs text-brand-400">{s.shipmentNumber}</td>
                         <td className="px-4 py-2.5 text-xs text-zinc-300">{s.shipper?.name}</td>
@@ -245,6 +253,7 @@ export default function ReportsPage() {
                 </table>
               )}
             </div>
+            <Pagination {...paging} total={records.length} page={info.page} />
           </div>
         </div>
       )}

@@ -5,26 +5,24 @@ const { validate, createDriverRules, paginationRules } = require('../middleware/
 
 const router = express.Router();
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const { internalCompany } = require('../services/access');
 
 router.get('/', authenticate, paginationRules, validate, async (req, res, next) => {
   try {
     const { page = 1, limit = 20, search, companyId } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
     const where = {
       isActive: true,
       ...(search && { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }] }),
       ...(companyId && { companyId }),
     };
-    const [drivers, total] = await Promise.all([
-      prisma.driver.findMany({
-        where, skip, take: Number(limit),
+    const result = await listPage(prisma.driver, {
+        where,
         include: { company: { select: { id: true, name: true } }, _count: { select: { trips: true } } },
-        orderBy: { name: 'asc' },
-      }),
-      prisma.driver.count({ where }),
-    ]);
-    res.json({ data: drivers, total, page: Number(page), limit: Number(limit) });
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      }, { page, limit });
+    const drivers = result.data;
+    res.json({ ...result, data: drivers });
   } catch (err) { next(err); }
 });
 

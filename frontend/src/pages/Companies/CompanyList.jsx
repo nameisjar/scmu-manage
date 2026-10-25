@@ -1,7 +1,10 @@
 import { useLanguage } from '../../i18n/LanguageContext';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Building2, Plus } from 'lucide-react';
 import api from '../../api/client';
+import Pagination from '../../components/common/Pagination';
+import { usePagedResource, Notice } from '../../components/jpt/Workspace';
+import { usePageQuery } from '../../components/Layout/PageNavigation';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader, Button, SearchInput, EmptyState, Spinner, Modal, FormField } from '../../components/common';
 
@@ -9,26 +12,14 @@ const COMPANY_TYPES = ['TRANSPORTER', 'BROKER', 'CONSIGNEE'];
 
 export default function CompanyList() {
   const { t: tr } = useLanguage();
-  const [companies, setCompanies] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [type, setType] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({ name: '', type: 'TRANSPORTER', npwp: '', city: '', state: '', phone: '', email: '', contactPerson: '' });
+  const [params,setQuery]=usePageQuery();
+  const search=params.get('search')||''; const setSearch=search=>setQuery({search,page:null});
+  const type=params.get('type')||''; const setType=type=>setQuery({type,page:null});
+  const resource=usePagedResource('/companies', {search,type}); const companies=resource.rows; const total=resource.pagination.total; const loading=resource.loading; const load=resource.reload;
   const { canManage } = useAuth();
-
-  const load = () => {
-    setLoading(true);
-    api.get('/companies', { params: { limit: 50, ...(search && { search }), ...(type && { type }) } })
-      .then(r => { setCompanies(r.data.data); setTotal(r.data.total); }).finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(load, search ? 400 : 0);
-    return () => clearTimeout(timer);
-  }, [search, type]);
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -50,7 +41,7 @@ export default function CompanyList() {
       <PageHeader title={tr("Companies")} subtitle={tr("{count} companies in directory", { count: total })}
         action={canManage() && <Button onClick={() => setShowModal(true)}><Plus size={16} /> {tr("Add Company")}</Button>} />
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <SearchInput value={search} onChange={setSearch} placeholder={tr("Search companies...")} />
         <select className="input-field w-40" value={type} onChange={e => setType(e.target.value)}>
           <option value="">{tr("All Types")}</option>
@@ -58,6 +49,7 @@ export default function CompanyList() {
         </select>
       </div>
 
+      <Notice message={resource.error} />
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -85,6 +77,7 @@ export default function CompanyList() {
             </tbody>
           </table>
         </div>
+        <Pagination {...resource.pagination} />
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={tr("Add Company")}>

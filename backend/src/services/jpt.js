@@ -141,6 +141,9 @@ function alerts(job, now = new Date()) {
     if (document.expiresAt && document.expiresAt < now) list.push({ type: 'DOCUMENT_EXPIRED', reference: document.title });
   }
   for(const bill of job.seaBills || []) {
+    for(const container of require('./blRegister').normalize({},bill).containers) {
+      if(container.freeTimeUntil && new Date(container.freeTimeUntil)<now && !container.emptyReturnedAt) list.push({type:'CONTAINER_OVERDUE',reference:container.number});
+    }
     if(!(job.shipments || []).some(leg=>leg.id===bill.shipmentId&&leg.mode==='SEA'&&leg.status!=='CANCELLED'))continue;
     if(bill.internalStatus!=='SEA_MATCHED'||require('./seaBills').issues(bill).includes('SEA_PACKING_CHANGED'))list.push({type:'SEA_REVIEW_REQUIRED',reference:bill.billNumber||job.jobNumber});
     if(job.jobType==='RECEIVER'&&bill.releaseStatus!=='SEA_RELEASE_CONFIRMED')list.push({type:'SEA_RELEASE_PENDING',reference:bill.billNumber||job.jobNumber});

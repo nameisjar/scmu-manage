@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@media print { [data-pagination] { display: none !important; } }
+
 :root {
   --color-bg: #09090B;
   --color-surface: #18181B;

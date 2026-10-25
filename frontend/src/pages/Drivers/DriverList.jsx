@@ -2,31 +2,23 @@ import { useLanguage } from '../../i18n/LanguageContext';
 import { useState, useEffect } from 'react';
 import { UserCheck, Plus, Star } from 'lucide-react';
 import api from '../../api/client';
+import Pagination from '../../components/common/Pagination';
+import { usePagedResource, Notice } from '../../components/jpt/Workspace';
+import { usePageQuery } from '../../components/Layout/PageNavigation';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader, Button, SearchInput, EmptyState, Spinner, Modal, FormField } from '../../components/common';
 
 export default function DriverList() {
   const { t: tr } = useLanguage();
-  const [drivers, setDrivers] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [form, setForm] = useState({ name: '', phone: '', licenseNo: '', address: '', city: '', state: '', companyId: '', emergencyContact: '' });
+  const [params,setQuery]=usePageQuery();
+  const search=params.get('search')||''; const setSearch=search=>setQuery({search,page:null});
+  const resource=usePagedResource('/drivers', {search}); const drivers=resource.rows; const total=resource.pagination.total; const loading=resource.loading; const load=resource.reload;
   const { canManage } = useAuth();
 
-  const load = () => {
-    setLoading(true);
-    api.get('/drivers', { params: { limit: 50, ...(search && { search }) } })
-      .then(r => { setDrivers(r.data.data); setTotal(r.data.total); }).finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(load, search ? 400 : 0);
-    return () => clearTimeout(timer);
-  }, [search]);
   useEffect(() => { api.get('/companies', { params: { limit: 200 } }).then(r => { const rows = r.data.data || []; setCompanies(rows); setForm(previous => ({ ...previous, companyId: previous.companyId || rows.find(company => company.isInternal)?.id || '' })); }); }, []);
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -49,6 +41,7 @@ export default function DriverList() {
 
       <SearchInput value={search} onChange={setSearch} placeholder={tr("Search drivers...")} />
 
+      <Notice message={resource.error} />
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -81,6 +74,7 @@ export default function DriverList() {
             </tbody>
           </table>
         </div>
+        <Pagination {...resource.pagination} />
       </div>
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={tr("Add Driver")}>

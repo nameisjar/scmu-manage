@@ -320,3 +320,31 @@ tetap dipertahankan dan pemeriksaannya masuk alur pengecualian direktur.
 Alur ini menggunakan pemeriksaan manual; OCR/pembacaan otomatis belum ditambahkan.
 Pengujian tambahan: `node scripts/test-packing-summaries.cjs` dan
 `node scripts/test-packing-summary-browser.mjs` (Chrome lokal).
+
+## Pagination daftar
+
+Daftar menampilkan pilihan **10, 25, atau 50 baris**, rentang data dan jumlah total,
+tombol Sebelumnya/Berikutnya, serta nomor halaman. Kontrol tetap terlihat ketika
+data sedikit atau kosong; tombol yang tidak dapat digunakan dinonaktifkan.
+
+Job, penawaran, persetujuan, pengiriman, RFQ, invoice, perusahaan, armada, pengemudi,
+pengguna, dan rute mengambil halaman melalui API. Pencarian/filter diterapkan sebelum
+pembagian halaman, dengan urutan tambahan ID agar data dengan waktu/nama sama tetap
+berurutan. Halaman di luar jumlah data dikembalikan ke halaman terakhir yang tersedia.
+Pencarian, filter, jumlah baris, dan halaman disimpan di URL dan dipulihkan saat kembali
+dari detail. Mengubah filter atau jumlah baris mengembalikan daftar ke halaman pertama.
+
+Tabel detail/modal memakai pagination terpisah, termasuk packing list, dokumen kepala,
+BL, lampiran dan revisi. Seluruh dokumen tetap tersedia untuk pemilihan, perhitungan,
+persetujuan dan cetak. Riwayat aktivitas menggunakan endpoint paginasi tersendiri,
+sehingga tidak terhenti pada 100 catatan.
+
+Tabel keuangan dikirim per halaman. Ringkasan mata uang mencakup seluruh job; jumlah
+per tab mencakup seluruh hasil filter. Ekspor CSV meminta seluruh hasil filter tab aktif.
+Laporan juga memiliki pagination tampilan, dengan seluruh baris tersedia untuk ekspor
+dan cetak. Pagination tidak ikut tercetak.
+
+Pengujian: `node scripts/test-pagination.cjs` memeriksa daftar di atas batas 50/200 data,
+filter, urutan, rentang kosong dan keuangan. `node scripts/test-pagination-browser.mjs`
+memeriksa semua modul, navigasi kembali, CSV, cetak, modal, dan layar kecil. Keduanya
+membuat data sementara pada database demo lokal dan menghapus hanya data uji miliknya.

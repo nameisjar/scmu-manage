@@ -1,8 +1,10 @@
 import { formatMoney } from '../../utils/format.mjs';
 import { useLanguage } from '../../i18n/LanguageContext';
-import { useState, useEffect } from 'react';
 import { Receipt } from 'lucide-react';
 import api from '../../api/client';
+import Pagination from '../../components/common/Pagination';
+import { usePagedResource, Notice } from '../../components/jpt/Workspace';
+import { usePageQuery } from '../../components/Layout/PageNavigation';
 import { PageHeader, Button, StatusBadge, SearchInput, EmptyState, Spinner } from '../../components/common';
 import { PrintButton } from './InvoicePrint';
 import { Link } from 'react-router-dom';
@@ -12,25 +14,11 @@ const STATUSES = ['', 'PENDING', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'DISPU
 
 export default function InvoiceList() {
   const { t: tr, locale } = useLanguage();
-  const [invoices, setInvoices] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
-  const limit = 20;
 
-  const load = () => {
-    setLoading(true);
-    api.get('/invoices', { params: { page, limit, ...(search && { search }), ...(status && { status }) } })
-      .then(r => { setInvoices(r.data.data); setTotal(r.data.total); }).finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(load, search ? 400 : 0);
-    return () => clearTimeout(timer);
-  }, [search, page, status]);
-
+  const [params,setQuery]=usePageQuery();
+  const search=params.get('search')||''; const setSearch=search=>setQuery({search,page:null});
+  const status=params.get('status')||''; const setStatus=status=>setQuery({status,page:null});
+  const resource=usePagedResource('/invoices', {search,status}); const invoices=resource.rows; const total=resource.pagination.total; const loading=resource.loading; const load=resource.reload;
   const updateStatus = async (id, newStatus) => {
     await api.put(`/invoices/${id}`, { status: newStatus });
     load();
@@ -40,13 +28,14 @@ export default function InvoiceList() {
     <div className="space-y-5 animate-fade-in">
       <PageHeader title={tr("Invoice Reconciliation")} subtitle={tr("{count} invoices", { count: total })} />
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <SearchInput value={search} onChange={setSearch} placeholder={tr("Search invoices...")} />
-        <select className="input-field w-44" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
+        <select className="input-field w-44" value={status} onChange={e => { setStatus(e.target.value); }}>
           {STATUSES.map(s => <option key={s} value={s}>{tr(s || 'All Statuses')}</option>)}
         </select>
       </div>
 
+      <Notice message={resource.error} />
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -90,13 +79,7 @@ export default function InvoiceList() {
             </tbody>
           </table>
         </div>
-        {total > limit && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-800">
-            <Button variant="secondary" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 1}>{tr("Previous")}</Button>
-            <span className="text-xs text-zinc-500">{tr("Page")} {page} {tr("of")} {Math.ceil(total / limit)}</span>
-            <Button variant="secondary" size="sm" onClick={() => setPage(p => p + 1)} disabled={page * limit >= total}>{tr("Next")}</Button>
-          </div>
-        )}
+        <Pagination {...resource.pagination} />
       </div>
     </div>
   );

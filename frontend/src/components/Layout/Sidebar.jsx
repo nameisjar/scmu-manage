@@ -1,4 +1,4 @@
-import { useLanguage } from '../../i18n/LanguageContext';
+import { useBL as useLanguage } from '../../i18n/bl.mjs';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -10,7 +10,11 @@ import Brand from '../common/Brand';
 import LanguageSwitcher from '../common/LanguageSwitcher';
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },  { to: '/sales-quotations', label: 'Commercial quotations', icon: ClipboardList, staff: true },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { to: '/bl-register', label: 'B/L register', icon: ClipboardList },
+  { to: '/container-operations', label: 'Container operations', icon: TruckIcon },
+  { to: '/jpt-tariffs', label: 'JPT tariffs', icon: Receipt },
+  { to: '/sales-quotations', label: 'Commercial quotations', icon: ClipboardList, staff: true },
   { to: '/jobs', label: 'Job orders', icon: Package, staff: true },
   { to: '/job-finance', label: 'Job finance', icon: Receipt, staff: true },
   { to: '/approvals', label: 'Director approvals', icon: UserCheck },

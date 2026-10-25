@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validate, createUserRules, updateUserRules, paginationRules } = require('../middleware/validators');
 const { INTERNAL_ROLES, internalCompany, isInternalRole } = require('../services/access');
@@ -24,8 +25,7 @@ function disconnectUser(req, id) {
 router.get('/', paginationRules, validate, route(async (req, res) => {
   const { page = 1, limit = 20, search, role } = req.query;
   const where = { role: role ? choice(role, INTERNAL_ROLES, 'Role') : { in: INTERNAL_ROLES }, ...(search && { OR: ['name', 'email'].map(key => ({ [key]: { contains: search, mode: 'insensitive' } })) }) };
-  const [data, total] = await Promise.all([prisma.user.findMany({ where, skip: (Number(page) - 1) * Number(limit), take: Number(limit), select, orderBy: { createdAt: 'desc' } }), prisma.user.count({ where })]);
-  res.json({ data, total, page: Number(page), limit: Number(limit) });
+  res.json(await listPage(prisma.user, { where, select, orderBy: [{createdAt:'desc'},{id:'desc'}] }, {page,limit}));
 }));
 router.post('/', createUserRules, validate, route(async (req, res) => {
   const { name, email, role, phone, password } = req.body;

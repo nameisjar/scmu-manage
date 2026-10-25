@@ -58,6 +58,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/portal', (req, res) => res.status(404).json({ message: 'Customer portal is no longer available' }));
 app.use('/api', authenticate);
 app.use('/api/jobs', jobRoutes);
+app.use('/api/bl-register', require('./src/routes/blRegister'));
+app.use('/api/jpt-tariffs', require('./src/routes/jptTariffs'));
 app.use('/api/approvals', require('./src/routes/approvals'));
 app.use('/api/sales-quotations', salesQuotationRoutes);
 app.use('/api/users', userRoutes);

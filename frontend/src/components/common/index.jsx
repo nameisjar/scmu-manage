@@ -221,7 +221,7 @@ export function SearchInput({ value, onChange, placeholder = 'Search...' }) {
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={tr(placeholder)}
-      className="input-field w-64"
+      className="input-field w-64 max-w-full"
     />
   );
 }

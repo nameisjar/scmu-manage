@@ -2,8 +2,10 @@ import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDownLeft, ArrowUpRight, Download, Search, TrendingUp, Wallet } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
+import api from '../../api/client';
+import { usePagination, usePageCorrection } from '../../components/common/Pagination';
 import { usePageQuery } from '../../components/Layout/PageNavigation';
-import { Button, DataTable, DetailModal, ResourceState, StatusBadge, useResource } from '../../components/jpt/Workspace';
+import { Button, DataTable, DetailModal, ResourceState, StatusBadge, Notice, useAction, useResource } from '../../components/jpt/Workspace';
 import { downloadCsv, formatDate, formatMoney } from '../../utils/format.mjs';
 import { financeExport, financeView, FINANCE_TABS, isPostedInvoice } from './financeView.mjs';
 
@@ -16,15 +18,17 @@ const kpis = [
 ];
 
 export default function Finance() {
-  const { t, locale } = useLanguage(); const resource = useResource('/jobs/finance'); const [query, setQuery] = usePageQuery(); const [selectedId, setSelectedId] = useState(null); const tabId = useId();
-  const data = resource.data; const currencies = Array.from(new Set(['IDR', ...(data?.groups.map(row => row.currency) || [])]));
-  const requestedCurrency = query.get('currency') || 'IDR'; const currency = currencies.includes(requestedCurrency) ? requestedCurrency : 'IDR';
+  const { t, locale } = useLanguage(); const [query, setQuery] = usePageQuery(); const [selectedId, setSelectedId] = useState(null); const tabId = useId();const paging=usePagination();const exportAction=useAction();
+  const requestedCurrency = query.get('currency') || 'IDR'; const currency = ['IDR','USD','EUR','SGD','INR'].includes(requestedCurrency) ? requestedCurrency : 'IDR';
   const tab = FINANCE_TABS.includes(query.get('financeTab')) ? query.get('financeTab') : 'overview'; const search = query.get('search') || ''; const outstandingOnly = query.get('outstanding') === '1';
-  const group = data?.groups.find(row => row.currency === currency); const view = financeView(data, { currency, search, outstandingOnly });
+  const filters={currency,financeTab:tab,search,outstanding:outstandingOnly?'1':''};const url=`/jobs/finance?${new URLSearchParams({...filters,...paging.params})}`;const resource=useResource(url);const data=resource.data;const ready=resource.loadedUrl===url;
+  const currencies = Array.from(new Set(['IDR',currency,...(data?.groups.map(row => row.currency) || [])]));
+  const pagination={...paging,total:ready?data.pagination.total:0,page:ready?data.pagination.page:paging.page,server:true,loading:resource.loading||!ready};usePageCorrection(paging,pagination.total,ready&&!resource.loading);
+  const group = data?.groups.find(row => row.currency === currency); const view = financeView(ready?data:null, { currency, search, outstandingOnly });
   const selected = view.jobById.get(selectedId); const money = amount => formatMoney(amount, currency, locale);
   const visibleRows = { overview: view.jobs, receivables: view.invoices, payables: view.payables, internal: view.internal };
-  const changeFilter = changes => { setSelectedId(null); setQuery(changes); };
-  const exportLedger = () => { const csv = financeExport(tab, view, t); downloadCsv(`SCMU-job-${tab === 'overview' ? 'ledger' : tab}-${currency}.csv`, csv.headers, csv.rows); };
+  const changeFilter = changes => { setSelectedId(null); setQuery({...changes,page:null}); };
+  const exportLedger = async () => { const response=await api.get(`/jobs/finance?${new URLSearchParams({...filters,export:'1'})}`);const csv = financeExport(tab, financeView(response.data,{currency,search,outstandingOnly}), t); downloadCsv(`SCMU-job-${tab === 'overview' ? 'ledger' : tab}-${currency}.csv`, csv.headers, csv.rows); };
   const amount = value => <span className={`whitespace-nowrap tabular-nums ${Number(value) < 0 ? 'text-red-300' : Number(value) === 0 ? 'text-zinc-500' : 'text-zinc-100'}`}>{money(value)}</span>;
   const moneyColumn = (key, label, get = row => row.financials[key]) => ({ key, label, align: 'right', render: row => amount(get(row)) });
   const jobCell = row => {
@@ -52,8 +56,9 @@ export default function Finance() {
       <label className="space-y-1.5"><span className="block text-xs text-zinc-400">{t('Currency')}</span><select className="input-field min-w-[100px]" aria-label={t('Currency')} value={currency} onChange={event => changeFilter({ currency: event.target.value })}>{currencies.map(value => <option key={value}>{value}</option>)}</select></label>
       <label className="min-w-[180px] flex-1 space-y-1.5"><span className="block text-xs text-zinc-400">{t('Find a job')}</span><span className="relative block"><Search size={16} className="pointer-events-none absolute left-3 top-3 text-zinc-500" /><input type="search" className="input-field" style={{ paddingLeft: '2.25rem' }} aria-label={t('Search financial jobs')} placeholder={t('Job number, route or reference...')} value={search} onChange={event => changeFilter({ search: event.target.value })} /></span></label>
       <label className="flex min-h-[38px] items-center gap-2 text-sm text-zinc-300"><input type="checkbox" className="h-4 w-4 accent-brand-500" checked={outstandingOnly} onChange={event => changeFilter({ outstanding: event.target.checked ? '1' : null })} />{t('With outstanding balance')}</label>
-      <Button variant="secondary" disabled={!visibleRows[tab].length} title={t('Export current view')} onClick={exportLedger}><Download size={15} />{t('Export CSV')}</Button>
+      <Button variant="secondary" disabled={!visibleRows[tab].length||exportAction.busy} title={t('Export current view')} onClick={()=>exportAction.run(exportLedger)}><Download size={15} />{t('Export CSV')}</Button>
     </div>
+    <Notice message={exportAction.error} />
     <ResourceState resource={resource}>
       <section className="space-y-3" aria-label={t('Currency summary')}>
         <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-medium text-zinc-300">{t('Totals for {currency}', { currency })}</h2><span className="text-xs text-zinc-500">{t('{count} jobs', { count: group?.jobs || 0 })}</span></div>
@@ -66,14 +71,14 @@ export default function Finance() {
       <div role="tablist" aria-label={t('Finance views')} className="flex flex-wrap gap-1 border-b border-zinc-800">
         {FINANCE_TABS.map((value,index) => <button type="button" role="tab" key={value} id={`${tabId}-${value}`} aria-controls={`${tabId}-panel`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => changeFilter({ financeTab: value === 'overview' ? null : value })} onKeyDown={event => {
           const direction = { ArrowRight: 1, ArrowLeft: -1, Home: -index, End: FINANCE_TABS.length - 1 - index }[event.key]; if (direction === undefined) return; event.preventDefault(); const next = (index + direction + FINANCE_TABS.length) % FINANCE_TABS.length; changeFilter({ financeTab: FINANCE_TABS[next] }); event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next].focus();
-        }} className={`inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${tab === value ? 'border-brand-400 text-brand-300' : 'border-transparent text-zinc-400 hover:text-zinc-200'}`}>{t(tabLabels[value])}<span className="rounded-md bg-zinc-800 px-1.5 py-0.5 text-xs tabular-nums text-zinc-400">{visibleRows[value].length}</span></button>)}
+        }} className={`inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${tab === value ? 'border-brand-400 text-brand-300' : 'border-transparent text-zinc-400 hover:text-zinc-200'}`}>{t(tabLabels[value])}<span className="rounded-md bg-zinc-800 px-1.5 py-0.5 text-xs tabular-nums text-zinc-400">{ready?data.counts[value]:0}</span></button>)}
       </div>
       <section role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${tab}`} className="space-y-4">
         {tab === 'payables' && secondaryMetrics([['vendorCost','Vendor bill'],['payable','Vendor payable']])}
         {tab === 'internal' && secondaryMetrics([['internalCost','Internal operating cost'],['internalExpensePaid','Internal expenses paid'],['internalOutstanding','Internal costs outstanding']])}
-        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-base font-semibold text-zinc-200">{t(tab === 'overview' ? 'Job financial overview' : tab === 'receivables' ? 'Receivable aging' : tab === 'payables' ? 'Payable aging' : 'Internal operating cost')}</h2><span role="status" className="text-xs text-zinc-500">{t('{count} records', { count: visibleRows[tab].length })}</span></div>
-        <DataTable rows={visibleRows[tab]} columns={columns} empty="No financial records match these filters" />
-        {tab === 'overview' && view.alerts.length > 0 && <details className="rounded-xl border border-zinc-800"><summary className="cursor-pointer px-4 py-3 text-sm text-zinc-400">{t('Needs attention')} <span className="ml-2 rounded-md bg-brand-500/10 px-2 py-0.5 text-xs text-brand-300">{view.alerts.length}</span></summary><div className="p-3 pt-0"><DataTable rows={view.alerts} columns={[{ key: 'jobNumber', label: 'Job order', render: jobCell },{ key: 'type', label: 'Alert', render: row => t(row.type) },{ key: 'reference', label: 'Reference', render: row => t(row.reference) }]} /></div></details>}
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-base font-semibold text-zinc-200">{t(tab === 'overview' ? 'Job financial overview' : tab === 'receivables' ? 'Receivable aging' : tab === 'payables' ? 'Payable aging' : 'Internal operating cost')}</h2><span role="status" className="text-xs text-zinc-500">{t('{count} records', { count: pagination.total })}</span></div>
+        <DataTable rows={visibleRows[tab]} pagination={pagination} columns={columns} empty="No financial records match these filters" />
+        {tab === 'overview' && view.alerts.length > 0 && <details className="rounded-xl border border-zinc-800"><summary className="cursor-pointer px-4 py-3 text-sm text-zinc-400">{t('Needs attention')} <span className="ml-2 rounded-md bg-brand-500/10 px-2 py-0.5 text-xs text-brand-300">{view.alerts.length}</span></summary><div className="p-3 pt-0"><DataTable paginationKey="financeAlerts" rows={view.alerts} columns={[{ key: 'jobNumber', label: 'Job order', render: jobCell },{ key: 'type', label: 'Alert', render: row => t(row.type) },{ key: 'reference', label: 'Reference', render: row => t(row.reference) }]} /></div></details>}
       </section>
     </ResourceState>
     {selected && <DetailModal title="Job financial details" onClose={() => setSelectedId(null)} actions={<Link to={`/jobs/${selected.id}?tab=finance`} className="text-sm text-brand-300 underline" onClick={() => setSelectedId(null)}>{t('Open job finance')}</Link>}>

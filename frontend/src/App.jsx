@@ -2,7 +2,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+import BLRegister from './pages/BL/BLRegister';
+import BLDetail from './pages/BL/BLDetail';
+import JPTTariffs from './pages/BL/JPTTariffs';
 import RFQList from './pages/RFQ/RFQList';
 import CreateRFQ from './pages/RFQ/CreateRFQ';
 import RFQDetail from './pages/RFQ/RFQDetail';
@@ -39,7 +41,13 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route index element={<Dashboard />} />        <Route path="sales-quotations" element={<Quotations />} />
+        <Route index element={<BLRegister />} />
+        <Route path="bl-register" element={<BLRegister />} />
+        <Route path="bl-register/new" element={<BLDetail create />} />
+        <Route path="bl-register/:id" element={<BLDetail />} />
+        <Route path="container-operations" element={<BLRegister operations />} />
+        <Route path="jpt-tariffs" element={<JPTTariffs />} />
+        <Route path="sales-quotations" element={<Quotations />} />
         <Route path="sales-quotations/:id" element={<QuotationDetail />} />
         <Route path="jobs" element={<Jobs />} />
         <Route path="jobs/:id" element={<JobDetail />} />

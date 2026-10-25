@@ -5,27 +5,25 @@ const { validate, createVehicleRules, paginationRules } = require('../middleware
 
 const router = express.Router();
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const { internalCompany } = require('../services/access');
 
 router.get('/', authenticate, paginationRules, validate, async (req, res, next) => {
   try {
     const { page = 1, limit = 20, search, type, companyId } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
     const where = {
       isActive: true,
       ...(search && { registrationNo: { contains: search, mode: 'insensitive' } }),
       ...(type && { type }),
       ...(companyId && { companyId }),
     };
-    const [vehicles, total] = await Promise.all([
-      prisma.vehicle.findMany({
-        where, skip, take: Number(limit),
+    const result = await listPage(prisma.vehicle, {
+        where,
         include: { company: { select: { id: true, name: true } }, _count: { select: { trips: true } } },
-        orderBy: { registrationNo: 'asc' },
-      }),
-      prisma.vehicle.count({ where }),
-    ]);
-    res.json({ data: vehicles, total, page: Number(page), limit: Number(limit) });
+        orderBy: [{ registrationNo: 'asc' }, { id: 'asc' }],
+      }, { page, limit });
+    const vehicles = result.data;
+    res.json({ ...result, data: vehicles });
   } catch (err) { next(err); }
 });
 

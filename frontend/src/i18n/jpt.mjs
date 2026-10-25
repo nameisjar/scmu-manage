@@ -1,5 +1,9 @@
 import { seaIndonesia, seaEnums } from './sea.mjs';
 export const jptIndonesia = {
+  'Pagination': 'Navigasi halaman',
+  'Rows per page': 'Baris per halaman',
+  'Showing {start}–{end} of {total} records': 'Menampilkan {start}–{end} dari {total} data',
+  'Go to page {page}': 'Ke halaman {page}',
   ...seaIndonesia,
   'Not stated': 'Tidak tercantum',
   'Partial total': 'Subtotal tersedia',

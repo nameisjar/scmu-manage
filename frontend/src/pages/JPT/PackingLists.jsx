@@ -100,7 +100,7 @@ export default function PackingLists({ job, onChange }) {
   return <div className="space-y-5">
     <p className="text-sm text-zinc-400">{t(job.jobType === 'RECEIVER' ? 'Upload each sender packing list, then group selected documents under one receiving packing header.' : 'Create this packing list directly. No receiving header or combined list of all source documents is required.')}</p>
     {editable && <div className="flex flex-wrap gap-3">{job.jobType === 'RECEIVER' ? job.packingHeader?.status !== 'FINAL' && <Button onClick={() => create('INBOUND')}>{t('Upload original packing list')}</Button> : <Button onClick={() => create('OUTBOUND')}>{t('Create outgoing packing list')}</Button>}</div>}
-    <ResourceState resource={resource}><DataTable rows={records} columns={[
+    <ResourceState resource={resource}><DataTable paginationKey="packing" rows={records} columns={[
       { key: 'direction', label: 'SCMU role', render: row => t(row.direction === 'INBOUND' ? 'SCMU as receiver' : 'SCMU as sender') },
       { key: 'recordNumber', label: 'Internal reference', render: row => <button type="button" className="font-mono text-xs text-brand-400" onClick={() => setSelectedId(row.id)}>{row.recordNumber}</button> },
       { key: 'externalNumber', label: 'Original packing list number' }, { key: 'documentDate', label: 'Document date', render: row => formatDate(row.documentDate, locale) },

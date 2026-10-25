@@ -1,0 +1,10 @@
+const router=require('express').Router();
+const prisma=require('../prisma');
+const {authenticate,authorize}=require('../middleware/auth');
+const {STAFF,route,transaction}=require('../services/jpt');
+const tariffs=require('../services/jptTariffs');
+router.use(authenticate,authorize(...STAFF));
+router.get('/',route(async(req,res)=>res.json({data:await prisma.jptTariff.findMany({orderBy:[{category:'asc'},{code:'asc'}]}),notice:tariffs.NOTICE})));
+router.post('/',authorize('SUPER_ADMIN'),route(async(req,res)=>res.status(201).json(await transaction(tx=>tariffs.save(tx,req.user,null,req.body)))));
+router.put('/:id',authorize('SUPER_ADMIN'),route(async(req,res)=>res.json(await transaction(tx=>tariffs.save(tx,req.user,req.params.id,req.body)))));
+module.exports=router;

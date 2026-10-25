@@ -15,15 +15,50 @@ function declared(packing) {
   return { packages: packing.packages, grossWeightKg: packing.grossWeightKg == null ? null : normalized(packing.grossWeightKg, 3), volumeCbm: packing.volumeCbm == null ? null : normalized(packing.volumeCbm, 4), senderName: packing.senderName, recipientName: packing.recipientName, externalNumber: packing.externalNumber || packing.recordNumber };
 }
 function contentSnapshot(bill) {
-  return { ...Object.fromEntries(metaKeys.map(key => [key, key === 'issueDate' ? bill[key] ? new Date(bill[key]).toISOString() : null : key === 'grossWeightKg' ? normalized(bill[key], 3) : key === 'volumeCbm' ? normalized(bill[key], 4) : bill[key] ?? null])),
+  return { ...Object.fromEntries(metaKeys.map(key => [key, key === 'containers' ? (bill.containers || []).map(({number,seal}) => ({number,seal})) : key === 'issueDate' ? bill[key] ? new Date(bill[key]).toISOString() : null : key === 'grossWeightKg' ? normalized(bill[key], 3) : key === 'volumeCbm' ? normalized(bill[key], 4) : bill[key] ?? null])),
     transport: bill.shipment ? Object.fromEntries(['mode','carrierId','originCity','destCity','vesselFlight','containerNumber','sealNumber'].map(key=>[key,bill.shipment[key]??null])) : null,
     allocations: (bill.allocations || []).map(row => ({ packingListId: row.packingListId, packages: row.packages, grossWeightKg: row.grossWeightKg == null ? null : normalized(row.grossWeightKg, 3), volumeCbm: row.volumeCbm == null ? null : normalized(row.volumeCbm, 4), scope: row.scope || null, declaredSnapshot: row.declaredSnapshot })).sort((a,b) => a.packingListId.localeCompare(b.packingListId)) };
 }
-function metadata(body) {
+const STATUSES = ['REGISTERED','READY','GATE_OUT','DOORING','STRIPPED','EMPTY_RETURNED'];
+const DATE_KEYS = ['plannedDeliveryAt','gateOutAt','strippedAt','emptyReturnedAt','freeTimeUntil'];
+const OP_TEXT_KEYS = ['goodsDescription','destinationAddress','vehicleNumber','driverName','vendorName','notes'];
+function operational(row, defaults = false) {
+  const clean = {...row};
+  if (defaults || row.size !== undefined) clean.size = row.size == null || row.size === '' ? null : choice(String(row.size), ['20','21','40'], 'Size');
+  if (defaults || row.status !== undefined) clean.status = choice(row.status || 'REGISTERED', STATUSES, 'Container status');
+  for (const key of DATE_KEYS) if (defaults || row[key] !== undefined) clean[key] = date(row[key], true)?.toISOString() || null;
+  for (const key of OP_TEXT_KEYS) if (defaults || row[key] !== undefined) clean[key] = text(row[key], key, 2000, true);
+  fail(clean.status !== 'EMPTY_RETURNED' || clean.emptyReturnedAt, 'Record an empty-return date for an empty-returned container');
+  const events = ['gateOutAt','strippedAt','emptyReturnedAt'].map(key => clean[key]).filter(Boolean);
+  fail(events.every((value, index) => !index || value >= events[index - 1]), 'Container events must be chronological');
+  return clean;
+}
+function historicalOperational(row) {
+  const safely = (read, fallback) => { try { return read(); } catch (error) { if (error.status !== 422) throw error; return fallback; } };
+  const clean = {...row, size: safely(() => row.size == null || row.size === '' ? null : choice(String(row.size), ['20','21','40'], 'Size'), null), status: safely(() => choice(row.status || 'REGISTERED', STATUSES, 'Container status'), 'REGISTERED')};
+  for (const key of DATE_KEYS) clean[key] = safely(() => date(row[key], true)?.toISOString() || null, null);
+  for (const key of OP_TEXT_KEYS) clean[key] = safely(() => text(row[key], key, 2000, true), null);
+  const events = ['gateOutAt','strippedAt','emptyReturnedAt'].map(key => clean[key]).filter(Boolean);
+  if (!events.every((value, index) => !index || value >= events[index - 1])) {
+    for (const key of ['gateOutAt','strippedAt','emptyReturnedAt']) clean[key] = null;
+  }
+  if (clean.status === 'EMPTY_RETURNED' && !clean.emptyReturnedAt) clean.status = 'REGISTERED';
+  return clean;
+}
+function metadata(body, suppliedContainers, registeredContainers = []) {
   const containers = body.containers || [];
   fail(Array.isArray(containers) && containers.length <= 100, 'Enter up to 100 containers');
-  fail(containers.every(row=>row&&typeof row==='object'), 'Container details must be valid');
-  const clean = containers.map(row => ({ number: text(row.number, 'Container number', 50).toUpperCase(), seal: text(row.seal, 'Seal number', 100, true) }));
+  fail(containers.every(row=>row&&typeof row==='object'&&!Array.isArray(row)), 'Container details must be valid');
+  const clean = containers.map(row => {
+    const identity = { ...row, number: text(row.number, 'Container number', 50).toUpperCase(), seal: text(row.seal, 'Seal number', 100, true) };
+    if (suppliedContainers === undefined) return operational(identity);
+    const supplied = suppliedContainers.find(item => String(item?.number || '').trim().toUpperCase() === identity.number) || {};
+    const registered = registeredContainers.find(item => item.number === identity.number) || {};
+    const checked = operational({ ...historicalOperational({ ...identity, ...registered }), ...supplied });
+    // Validate explicit fields, but never destructively rewrite historical extras.
+    for (const key of ['size','status',...DATE_KEYS,...OP_TEXT_KEYS]) if (supplied[key] !== undefined) identity[key] = checked[key];
+    return identity;
+  });
   fail(new Set(clean.map(row => row.number)).size === clean.length, 'Container numbers must be distinct');
   return { documentKind: choice(body.documentKind || 'BILL_OF_LADING', ['BILL_OF_LADING','SEA_WAYBILL'], 'Sea document type'),
     billNumber: text(body.billNumber, 'BL number', 100, true), issueDate: date(body.issueDate, true),
@@ -81,31 +116,45 @@ async function history(tx, user, billId, action, note) {
   if (user?.id) await audit(tx, user, action, 'JobOrder', bill.jobId, { seaBillId: billId, version: bill.version });
   return getBill(tx, bill.jobId, billId, undefined, false);
 }
+async function registerIdentity(tx, billNumber, before) {
+  const identity = billNumber ? text(billNumber, 'BL number', 100).toUpperCase() : null;
+  // Unchanged historical duplicates are grandfathered, never backfilled destructively.
+  if (before && identity === (before.billNumber?.trim().toUpperCase() || null)) return before.registerIdentity ?? null;
+  if (identity) {
+    const found = await tx.seaBill.findFirst({ where: { billNumber: { equals: billNumber.trim(), mode: 'insensitive' }, ...(before?.id ? { id: { not: before.id } } : {}) } });
+    fail(!found, 'This BL number is already registered', 409);
+  }
+  return identity;
+}
 async function createBill(tx, user, jobId, body, automatic = false) {
   const job = await mutableJob(tx, jobId);
   const leg = await tx.shipment.findFirst({ where: { id: body.shipmentId, jobId, mode: 'SEA', status: { not: 'CANCELLED' } }, include: { carrier: true } }); fail(leg, 'Select an active sea transport leg');
+  const fields = metadata(automatic ? {} : body);
+  const identity = await registerIdentity(tx, fields.billNumber);
   let document;
   if (body.documentId) {
     document = await tx.jobDocument.findFirst({ where: { id: body.documentId, jobId, type: { in: ['BILL_OF_LADING','SEA_WAYBILL'] }, seaBill: null } });
     fail(document && (!document.shipmentId || document.shipmentId === leg.id), 'Select an unlinked sea document from this job');
     document = await tx.jobDocument.update({ where: { id: document.id }, data: { shipmentId: leg.id, required: true, customerVisible: false } });
   } else document = await tx.jobDocument.create({ data: { jobId, shipmentId: leg.id, type: body.documentKind || 'BILL_OF_LADING', title: `BL / Sea waybill - ${leg.shipmentNumber}`, required: true, customerVisible: false } });
-  const fields = metadata(automatic ? {} : body);
-  if(fields.billNumber) fail(!await tx.seaBill.findFirst({where:{shipmentId:leg.id,billNumber:{equals:fields.billNumber,mode:'insensitive'}}}), 'This BL number is already recorded for the sea leg',409);
   const allocations = await allocationData(tx, job, leg.id, null, body.allocations || []);
-  const bill = await tx.seaBill.create({ data: { jobId, shipmentId: leg.id, documentId: document.id, ...fields, allocations: { create: allocations } } });
+  const bill = await tx.seaBill.create({ data: { jobId, shipmentId: leg.id, documentId: document.id, ...fields, registerIdentity: identity, allocations: { create: allocations } } });
   if (document.filename) await tx.seaBillFile.create({ data: { billId: bill.id, category: 'LEGACY', contentVersion: 1, filename: document.filename, originalName: document.originalName || document.filename, mimeType: document.mimeType || 'application/pdf', size: document.size || 0, uploadedById: document.uploadedById, note: 'Existing attachment preserved; confirm its document stage before uploading a final revision.' } });
   return history(tx, user, bill.id, 'SEA_BILL_CREATED', body.revisionNote);
 }
 const invalidate = { internalStatus: 'SEA_UNCHECKED', reviewedContentVersion: null, reviewedAt: null, reviewedById: null, reviewChecks: Prisma.DbNull, releaseStatus: 'SEA_RELEASE_PENDING', releaseMethod: null, releaseReference: null, releaseNote: null, releaseProofId: null, releasedAt: null, releasedById: null };
 async function updateBill(tx, user, jobId, id, body) {
   const bill = await getBill(tx, jobId, id, body.version); const job = await mutableJob(tx, jobId);
-  const fields = metadata({ ...bill, ...body }); const allocations = await allocationData(tx, job, bill.shipmentId, bill.id, body.allocations ?? bill.allocations);
-  if(fields.billNumber) fail(!await tx.seaBill.findFirst({where:{shipmentId:bill.shipmentId,id:{not:id},billNumber:{equals:fields.billNumber,mode:'insensitive'}}}), 'This BL number is already recorded for the sea leg',409);
+  const mergedContainers = body.containers === undefined ? bill.containers : Array.isArray(body.containers) ? body.containers.map(row=>({...(bill.containers||[]).find(old=>old.number===String(row?.number||'').trim().toUpperCase()),...row})) : body.containers;
+  const fields = metadata({ ...bill, ...body, containers:mergedContainers }, body.containers ?? [], bill.registerData?.containers || []); const allocations = await allocationData(tx, job, bill.shipmentId, bill.id, body.allocations ?? bill.allocations);
+  const identity = await registerIdentity(tx, fields.billNumber, bill);
+  const registerData = body.containers !== undefined && Array.isArray(bill.registerData?.containers)
+    ? { ...bill.registerData, containers: require('./blRegister').normalize({ containers: body.containers }, { ...bill, containers: fields.containers }).containers }
+    : undefined;
   const changed = !isDeepStrictEqual(contentSnapshot(bill), contentSnapshot({ ...fields, shipment:bill.shipment, allocations })) || fields.reviewIssues !== bill.reviewIssues;
   const note = text(body.revisionNote, 'Revision note', 2000, !bill.approvedSnapshot || !changed);
   await tx.seaBillCargo.deleteMany({ where: { billId: id } });
-  await tx.seaBill.update({ where: { id }, data: { ...fields, version: { increment: 1 }, ...(changed ? invalidate : {}), allocations: { create: allocations } } });
+  await tx.seaBill.update({ where: { id }, data: { ...fields, registerIdentity: identity, ...(registerData ? { registerData: json(registerData) } : {}), version: { increment: 1 }, ...(changed ? invalidate : {}), allocations: { create: allocations } } });
   if (changed) await tx.jobDocument.update({ where: { id: bill.documentId }, data: { status: receipt(bill)==='SEA_NOT_RECEIVED' ? 'PENDING' : 'UPLOADED', verifiedById: null, type: fields.documentKind } });
   return history(tx, user, id, 'SEA_BILL_UPDATED', note);
 }
@@ -168,6 +217,10 @@ function checkSeaClosure(job) {
   const bills = (job.seaBills || []).filter(bill=>legs.some(leg=>leg.id===bill.shipmentId));
   fail(legs.every(leg=>bills.some(bill=>bill.shipmentId===leg.id)), 'Record a sea document for every active sea transport leg',409);
   for (const bill of bills) {
+    if (bill.registerNumber || bill.registerData?.containers?.length) {
+      const operational=require('./blRegister').normalize({},bill).containers;
+      fail(operational.every(row=>row.status==='EMPTY_RETURNED' && row.emptyReturnedAt), 'Return every registered container with an empty-return date before closing',409);
+    }
     fail(bill.internalStatus==='SEA_MATCHED' && bill.reviewedContentVersion===bill.contentVersion && !issues(bill).includes('SEA_PACKING_CHANGED'), 'Verify current sea documents and packing links before closing', 409);
     if (job.jobType==='RECEIVER') fail(bill.releaseStatus==='SEA_RELEASE_CONFIRMED' && bill.releaseProofId, 'Record carrier release evidence for receiving sea shipments before closing', 409);
   }
@@ -185,4 +238,4 @@ async function transportChanged(tx,user,before,after) {
     }
   }
 }
-module.exports = { seaInclude, CARGO_SELECT, metadata, declared, contentSnapshot, allocationData, issues, present, receipt, getBill, history, createBill, updateBill, attach, verification, markMatched, verify, correction, confirmRelease, checkSeaClosure, checkKeys, transportChanged };
+module.exports = { registerIdentity, operational, historicalOperational, STATUSES, seaInclude, CARGO_SELECT, metadata, declared, contentSnapshot, allocationData, issues, present, receipt, getBill, history, createBill, updateBill, attach, verification, markMatched, verify, correction, confirmRelease, checkSeaClosure, checkKeys, transportChanged };

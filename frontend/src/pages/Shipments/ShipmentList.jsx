@@ -1,41 +1,22 @@
 import { formatMoney } from '../../utils/format.mjs';
 import { useLanguage } from '../../i18n/LanguageContext';
-import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Package, Plus } from 'lucide-react';
-import api from '../../api/client';
+import Pagination from '../../components/common/Pagination';
+import { usePagedResource, Notice } from '../../components/jpt/Workspace';
 import { useAuth } from '../../context/AuthContext';
 import { PageHeader, Button, StatusBadge, SearchInput, EmptyState, Spinner } from '../../components/common';
 import { usePageQuery } from '../../components/Layout/PageNavigation';
-import { positivePage } from '../../components/Layout/navigation.mjs';
 
 const STATUSES = ['', 'PENDING', 'ASSIGNED', 'IN_TRANSIT', 'DELIVERED', 'POD_UPLOADED', 'COMPLETED', 'CANCELLED'];
 
 export default function ShipmentList() {
   const { t: tr, locale } = useLanguage();
-  const [shipments, setShipments] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [params, setQuery] = usePageQuery(); const search = params.get('search') || ''; const status = params.get('status') || ''; const page = positivePage(params.get('page'));
-  const setSearch = search => setQuery({ search, page: null }); const setStatus = status => setQuery({ status, page: null }); const setPage = next => setQuery({ page: typeof next === 'function' ? next(page) : next });
+  const [params,setQuery]=usePageQuery();
+  const search=params.get('search')||''; const setSearch=search=>setQuery({search,page:null});
+  const status=params.get('status')||''; const setStatus=status=>setQuery({status,page:null});
+  const resource=usePagedResource('/shipments', {search,status}); const shipments=resource.rows; const total=resource.pagination.total; const loading=resource.loading; const load=resource.reload;
   const { canManage } = useAuth();
-  const limit = 20;
-
-  const load = () => {
-    setLoading(true);
-    const params = { page, limit, ...(search && { search }), ...(status && { status }) };
-    const controller = new AbortController();
-    api.get('/shipments', { params, signal: controller.signal })
-      .then(r => { setShipments(r.data.data); setTotal(r.data.total); })
-      .catch(error => { if (error.code !== 'ERR_CANCELED') { setShipments([]); setTotal(0); } })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  };
-
-  useEffect(() => {
-    let cancel; const timer = setTimeout(() => { cancel = load(); }, search ? 400 : 0);
-    return () => { clearTimeout(timer); cancel?.(); };
-  }, [search, page, status]);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -52,6 +33,7 @@ export default function ShipmentList() {
         </select>
       </div>
 
+      <Notice message={resource.error} />
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -90,13 +72,7 @@ export default function ShipmentList() {
             </tbody>
           </table>
         </div>
-        {total > limit && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-800">
-            <Button variant="secondary" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 1}>{tr("Previous")}</Button>
-            <span className="text-xs text-zinc-500">{tr("Page")} {page} {tr("of")} {Math.ceil(total / limit)}</span>
-            <Button variant="secondary" size="sm" onClick={() => setPage(p => p + 1)} disabled={page * limit >= total}>{tr("Next")}</Button>
-          </div>
-        )}
+        <Pagination {...resource.pagination} />
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { checkPage } from './browser-check.mjs';
+const backendRequire=createRequire(new URL('../backend/package.json',import.meta.url));const {financePage}=backendRequire('./src/services/financePage');
 const root=fileURLToPath(new URL('..',import.meta.url));const require=createRequire(new URL('../frontend/package.json',import.meta.url));const {createServer}=require('vite');
 process.chdir(path.join(root,'frontend'));process.env.NODE_ENV='production';process.env.VITE_API_URL='http://127.0.0.1:5174';
 const api=process.env.SCMU_API_URL||'http://127.0.0.1:5000';assert.ok(['127.0.0.1','localhost'].includes(new URL(api).hostname));
@@ -18,7 +19,7 @@ const cost={id:'finance-usd-cost',jobId:usd.id,jobNumber:usd.jobNumber,currency:
 usd.invoices=[posted,draft];usd.charges=[cost];usd.payments=[{id:'finance-usd-receipt',direction:'RECEIVABLE',amount:'250.00',reference:'USD-RECEIPT',paidAt:'2026-10-02T00:00:00.000Z'},{id:'finance-usd-payment',direction:'PAYABLE',amount:'1000.00',reference:'USD-PAYMENT',paidAt:'2026-10-03T00:00:00.000Z'}];
 finance.jobs.push(usd);finance.groups.push({...usd.financials,currency:'USD',jobs:1});finance.invoices.push(posted,draft);finance.payables.push(cost);
 const bootstrap=JSON.stringify({...auth,finance}).replaceAll('<','\\u003c');
-const server=await createServer({root:path.join(root,'frontend'),plugins:[{name:'finance-browser-fixture',transformIndexHtml(html,context){return context.path==='/finance-check.html'?html.replace('<head>',`<head><script>window.__SCMU_CHECK__=${bootstrap}</script>`):html;},configureServer(server){server.middlewares.use((req,res,next)=>{if(req.method!=='GET'||new URL(req.url,'http://127.0.0.1').pathname!=='/api/jobs/finance')return next();res.setHeader('Content-Type','application/json');res.end(JSON.stringify(finance));});}}],server:{host:'127.0.0.1',port:5174,strictPort:true,hmr:false,proxy:{'/api':{target:api,changeOrigin:true,configure(proxy){proxy.on('proxyReq',request=>request.removeHeader('origin'));}}}}});
+const server=await createServer({root:path.join(root,'frontend'),plugins:[{name:'finance-browser-fixture',transformIndexHtml(html,context){return context.path==='/finance-check.html'?html.replace('<head>',`<head><script>window.__SCMU_CHECK__=${bootstrap}</script>`):html;},configureServer(server){server.middlewares.use((req,res,next)=>{if(req.method!=='GET'||new URL(req.url,'http://127.0.0.1').pathname!=='/api/jobs/finance')return next();res.setHeader('Content-Type','application/json');const query=Object.fromEntries(new URL(req.url,'http://127.0.0.1').searchParams);res.end(JSON.stringify(financePage({...finance,invoices:finance.invoices.filter(row=>!['PENDING','SUBMITTED','UNDER_REVIEW','CANCELLED'].includes(row.status))},query)));});}}],server:{host:'127.0.0.1',port:5174,strictPort:true,hmr:false,proxy:{'/api':{target:api,changeOrigin:true,configure(proxy){proxy.on('proxyReq',request=>request.removeHeader('origin'));}}}}});
 const output=path.join(root,'.demo','ui-check');await mkdir(output,{recursive:true});await server.listen();
 try{
   const sizes=process.argv.includes('--desktop-only')?[['desktop',1920,1080]]:[['desktop',1920,1080],['laptop',1366,768],['compact',500,844]];

@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { checkPage } from './browser-check.mjs';
+const root=fileURLToPath(new URL('..',import.meta.url));const require=createRequire(new URL('../frontend/package.json',import.meta.url));const {createServer}=require('vite');process.chdir(path.join(root,'frontend'));process.env.NODE_ENV='production';process.env.VITE_API_URL='http://127.0.0.1:5187';
+// Isolated in-memory HTTP contract fixture, not production/demo business data.
+const makeBill=()=>({id:'fixture-bl',jobId:'fixture-job',shipmentId:'fixture-shipment',jobNumber:'TEST-JOB',version:1,registerNumber:'TEST-01',billNumber:'TEST-BL',vesselName:'Test vessel',voyageNumber:'01',portOfLoading:'Test origin',portOfDischarge:'Test port',register:{customerName:'Test customer',dateMeaning:'UNCONFIRMED'},containers:[{number:'TEST-C',size:'21',status:'REGISTERED'}],financials:{receivable:'200',revenue:'300',approvedCost:'100',unbilled:'300'}});
+let bill=makeBill();let tariff={id:'fixture-tariff',code:'TEST-DOOR',description:'Test dooring 21',category:'DOORING',size:'21',unit:'CONTAINER',unitPrice:'3850000',currency:'IDR',vatIncluded:true,vatRate:'1.1',enabled:true,confirmationRequired:false,effectiveFrom:'2026-01-01',notes:''};let requests=[];
+const server=await createServer({root:path.join(root,'frontend'),plugins:[{name:'isolated-bl-contract-fixture',configureServer(server){server.middlewares.use(async(req,res,next)=>{const url=new URL(req.url,'http://127.0.0.1');if(!url.pathname.startsWith('/api/'))return next();const body=await new Promise(resolve=>{let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>resolve(raw?JSON.parse(raw):{}));});requests.push({method:req.method,path:url.pathname,query:Object.fromEntries(url.searchParams),body});res.setHeader('Content-Type','application/json');const send=(value,status=200)=>{res.statusCode=status;res.end(JSON.stringify(value));};
+ if(url.pathname==='/api/check-state')return send({bill,tariff,requests});
+ if(url.pathname==='/api/check-reset'){bill=makeBill();requests=[];return send({ok:true});}
+ if(url.pathname==='/api/jpt-tariffs'){if(req.method==='POST'){tariff={...body,id:'fixture-tariff'};return send(tariff);}return send({data:[tariff,{...tariff,id:'disabled',code:'UNCONFIRMED',description:'Unconfirmed test',enabled:false,confirmationRequired:true}]});}
+ if(url.pathname==='/api/jpt-tariffs/fixture-tariff'&&req.method==='PUT'){tariff={...tariff,...body};return send(tariff);}
+ if(url.pathname==='/api/bl-register'){if(req.method==='POST'){bill={...makeBill(),...body,id:'fixture-created',jobId:'fixture-job',version:1};return send(bill);}const rows=url.searchParams.get('search')==='no-match'?[]:[bill];return send({data:rows,total:rows.length,page:1,limit:Number(url.searchParams.get('limit')||10),totalPages:1,summary:{activeBills:rows.length,pendingPort:1,dooring:0,pendingEmpty:1,incompleteDocuments:1,unpaidInvoices:1,freeTimeAlerts:0}});}
+ if(/^\/api\/bl-register\/[^/]+\/estimate$/.test(url.pathname))return send({lines:[{tariffId:tariff.id,description:tariff.description,unit:'CONTAINER',quantity:1,unitPrice:tariff.unitPrice,amount:tariff.unitPrice,vatIncluded:true,vatRate:'1.1'}],total:tariff.unitPrice,currency:'IDR',warnings:['Test warning: confirm package components']});
+ if(/^\/api\/bl-register\/[^/]+\/charges$/.test(url.pathname))return send({proposed:true});
+ if(/^\/api\/bl-register\/[^/]+$/.test(url.pathname)){if(req.method==='PUT'){if(body.notes==='conflict-test'||body.version!==bill.version)return send({message:'Record changed'},409);bill={...bill,...body,version:bill.version+1};}return send(bill);}
+ if(url.pathname==='/api/jobs/fixture-job/activity')return send({data:[{id:'activity',createdAt:'2026-01-01T00:00:00',action:'REGISTER_UPDATED',user:{name:'Test'},metadata:{version:bill.version}}],total:1,page:1,limit:10});
+ if(url.pathname==='/api/jobs/fixture-job')return send({id:'fixture-job',charges:[],financials:bill.financials});
+ if(url.pathname==='/api/approvals')return send({data:[],total:0,page:1,limit:10});
+ return send({message:'Unexpected test API '+url.pathname},404);
+ });}}],server:{host:'127.0.0.1',port:5187,strictPort:true,hmr:false}});
+const output=path.join(root,'.demo','ui-check');await mkdir(output,{recursive:true});await server.listen();try{for(const [label,width,height] of [['desktop',1440,1000],['compact',700,900]]){bill=makeBill();tariff={...tariff,code:'TEST-DOOR',description:'Test dooring 21',category:'DOORING',size:'21',unitPrice:'3850000',enabled:true,confirmationRequired:false};requests=[];const result=await checkPage({chrome:process.env.SCMU_TEST_BROWSER||'C:/Program Files/Google/Chrome/Application/chrome.exe',output,width,height,url:'http://127.0.0.1:5187/bl-check.html',screenshot:path.join(output,`bl-${label}.png`)});assert.ok(result.ok,`${label}: ${result.error}`);console.log(`PASS ${label}: ${result.checks.join(', ')}`);}}finally{await server.close();}

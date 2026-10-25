@@ -5,6 +5,7 @@ const { validate, createInvoiceRules, paginationRules } = require('../middleware
 
 const router = express.Router();
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const { number, choice, CURRENCIES, invoiceBalance, fail } = require('../services/jpt');
 
 function generateInvoiceNumber() {
@@ -14,19 +15,19 @@ function generateInvoiceNumber() {
 router.get('/', authenticate, paginationRules, validate, async (req, res, next) => {
   try {
     const { page = 1, limit = 20, status, search } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
     const where = {
       ...(status && { status }),
       ...(search && {
         OR: [
           { invoiceNumber: { contains: search, mode: 'insensitive' } },
           { shipment: { shipmentNumber: { contains: search, mode: 'insensitive' } } },
+          { job: { jobNumber: { contains: search, mode: 'insensitive' } } },
+          { company: { name: { contains: search, mode: 'insensitive' } } },
         ],
       }),
     };
-    const [invoices, total] = await Promise.all([
-      prisma.invoice.findMany({
-        where, skip, take: Number(limit),
+    const result = await listPage(prisma.invoice, {
+        where,
         include: {
           shipment: { select: { id: true, shipmentNumber: true, originCity: true, destCity: true } },
           company: { select: { id: true, name: true } },
@@ -34,11 +35,10 @@ router.get('/', authenticate, paginationRules, validate, async (req, res, next) 
           items: true,
           payments: true,
         },
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.invoice.count({ where }),
-    ]);
-    res.json({ data: invoices.map(invoice => ({ ...invoice, balance: invoiceBalance(invoice).toFixed(2) })), total, page: Number(page), limit: Number(limit) });
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      }, { page, limit });
+    const invoices = result.data;
+    res.json({ ...result, data: invoices.map(invoice => ({ ...invoice, balance: invoiceBalance(invoice).toFixed(2) })) });
   } catch (err) { next(err); }
 });
 

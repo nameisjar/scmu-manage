@@ -60,6 +60,17 @@ async function loadAction(tx, action, entityId, body = {}) {
     fail(raw.status === 'PROPOSED', 'This charge was already reviewed', 409);
     if (raw.kind === 'COST') { await costFields(tx, jobId, raw); if (raw.costSource === 'VENDOR') { fail(raw.vendorId, 'Assign a vendor before approving a cost'); await vendor(tx, raw.vendorId); } }
     payload = { actualAmount: decimal(body.actualAmount ?? raw.estimatedAmount.toString()).toFixed(2) };
+    if(raw.tariffSnapshot) {
+      fail(money(payload.actualAmount).eq(raw.tariffSnapshot.line.amount), 'Tariff snapshot amount cannot be overridden; propose an explicit adjustment separately',409);
+      if(raw.tariffSnapshot.billId) {
+        const bill=await tx.seaBill.findUnique({where:{id:raw.tariffSnapshot.billId},select:{id:true,billNumber:true,carrierName:true,containers:true,registerData:true}});
+        fail(bill,'Linked BL no longer exists',409);
+        // Carrier and container/register eligibility belong to the approval
+        // context. Do not fingerprint the bill version (proposal batches bump it)
+        // or re-read mutable tariff prices: the charge's price snapshot is final.
+        raw={...raw,blRegisterContext:{id:bill.id,billNumber:bill.billNumber,carrierName:bill.carrierName,containers:bill.containers,registerData:bill.registerData}};
+      }
+    }
     overview = [...basics(job), ...fields([['Charge type', raw.kind], ['Description', raw.description], ['Cost source', raw.costSource], ['Cost category', raw.costCategory], ['Vendor', raw.vendor?.name], ['Estimated amount', raw.estimatedAmount], ['Proposed actual amount', payload.actualAmount], ['Notes', raw.notes]])];
   } else if (action === 'VENDOR_AWARD') {
     const quote = await tx.quote.findUnique({ where: { id: entityId }, include: { transporter: true } }); fail(quote, 'Quote not found', 404);

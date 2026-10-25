@@ -1,5 +1,6 @@
 const express = require('express');
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const { authenticate, authorize } = require('../middleware/auth');
 const { STAFF, FINANCE, fail, route, number, text, date, choice, cargo, quotationItems, quotationTotals, transaction, audit, customer, money, invoiceBalance } = require('../services/jpt');
 const router = express.Router();
@@ -31,10 +32,12 @@ async function createJobFromQuotation(tx, quotation, user, jobType = 'SENDER') {
 }
 
 router.get('/', route(async (req, res) => {
-  const where = { ...(req.query.status && { status: choice(req.query.status, ['DRAFT', 'APPROVED', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']) }),
-    ...(req.query.search && { OR: ['quotationNumber', 'title'].map(field => ({ [field]: { contains: String(req.query.search).slice(0, 200), mode: 'insensitive' } })) }) };
-  const data = await prisma.salesQuotation.findMany({ where, include, orderBy: { createdAt: 'desc' }, take: 200 });
-  res.json({ data: data.map(present) });
+  const status = req.query.status && choice(req.query.status, ['DRAFT', 'APPROVED', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']);
+  const now = new Date();
+  const where = { ...(status === 'EXPIRED' ? { OR: [{status:'EXPIRED'},{status:{in:['DRAFT','APPROVED','SENT']},validUntil:{lt:now}}] } : status ? {status,...(['DRAFT','APPROVED','SENT'].includes(status)&&{validUntil:{gte:now}})} : {}),
+    ...(req.query.search && { AND: [{ OR: [...['quotationNumber', 'title', 'originCity', 'destCity'].map(field => ({ [field]: { contains: String(req.query.search).slice(0, 200), mode: 'insensitive' } })), {customer:{name:{contains:String(req.query.search).slice(0,200),mode:'insensitive'}}}] }] }) };
+  const result = await listPage(prisma.salesQuotation, { where, include, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }, req.query);
+  res.json({ ...result, data: result.data.map(present) });
 }));
 router.post('/', authorize(...FINANCE), route(async (req, res) => {
   const data = cargo(req.body);

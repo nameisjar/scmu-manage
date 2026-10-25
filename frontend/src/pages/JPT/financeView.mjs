@@ -17,7 +17,7 @@ export function financeView(data, { currency, search = '', outstandingOnly = fal
     invoices: related(data?.invoices).filter(isPostedInvoice),
     payables: related(data?.payables),
     internal: related(data?.internalExpenses),
-    alerts: (data?.alerts || []).filter(row => visibleIds.has(row.jobId)).map((row,index) => ({ ...row, id: `${row.jobId}-${index}` })),
+    alerts: (data?.alerts || []).filter(row => data?.pagination || visibleIds.has(row.jobId)).map((row,index) => ({ ...row, id: `${row.jobId}-${index}` })),
     jobById: new Map(matchingJobs.map(job => [job.id,job])),
   };
 }

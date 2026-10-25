@@ -574,8 +574,32 @@ model JobOrder {
   @@map("job_orders")
 }
 
+model JptTariff {
+  id String @id @default(uuid())
+  code String @unique
+  description String
+  category String
+  size String?
+  carrierName String?
+  unit String
+  unitPrice Decimal @db.Decimal(18, 2)
+  currency String @default("IDR")
+  vatIncluded Boolean @default(false)
+  vatRate String?
+  enabled Boolean @default(true)
+  confirmationRequired Boolean @default(false)
+  effectiveFrom DateTime?
+  effectiveTo DateTime?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("jpt_tariffs")
+}
+
 model JobCharge {
   id              String @id @default(uuid())
+  tariffKey       String? @unique
+  tariffSnapshot  Json?
   jobId           String
   job             JobOrder @relation(fields: [jobId], references: [id], onDelete: Cascade)
   kind            ChargeKind
@@ -703,6 +727,9 @@ model PackingList {
 
 model SeaBill {
   id              String @id @default(uuid())
+  registerNumber  String? @unique
+  registerData    Json @default("{}")
+  registerIdentity String? @unique
   jobId           String
   job             JobOrder @relation(fields: [jobId], references: [id], onDelete: Cascade)
   shipmentId      String

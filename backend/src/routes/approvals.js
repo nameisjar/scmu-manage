@@ -1,4 +1,5 @@
 const express = require('express'); const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const { authenticate, authorize } = require('../middleware/auth');
 const { route, text, choice, fail, transaction, audit, STAFF } = require('../services/jpt');
 const { submit, review } = require('../services/director');
@@ -9,9 +10,9 @@ async function present(approval, knownUsers) {
 }
 router.get('/', route(async (req, res) => {
   const where = { ...(req.query.status && { status: choice(req.query.status, ['SUBMITTED','APPROVED','RETURNED','REJECTED','WITHDRAWN']) }), ...(req.query.jobId && { jobId: String(req.query.jobId) }), ...(req.query.action && { action: String(req.query.action) }) };
-  const rows = await prisma.directorApproval.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
+  const result = await listPage(prisma.directorApproval, { where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }, req.query); const rows = result.data;
   const users = await prisma.user.findMany({ where: { id: { in: [...new Set(rows.flatMap(row => [row.requestedById, row.reviewedById].filter(Boolean)))] } }, select: { id: true, name: true } });
-  res.json({ data: await Promise.all(rows.map(row => present(row, users))) });
+  res.json({ ...result, data: await Promise.all(rows.map(row => present(row, users))) });
 }));
 router.post('/', route(async (req, res) => { const row = await transaction(tx => submit(tx, req.user, text(req.body.action, 'Approval action', 100), req.body.entityId, req.body.payload || {}, req.body.note)); res.status(201).json(await present(row)); }));
 router.post('/:id/review', authorize('SUPER_ADMIN'), route(async (req, res) => { const decision = choice(req.body.decision, ['APPROVED','RETURNED','REJECTED'], 'Decision'); const row = await transaction(tx => review(tx, req.user, req.params.id, decision, req.body.note)); res.json(await present(row)); }));

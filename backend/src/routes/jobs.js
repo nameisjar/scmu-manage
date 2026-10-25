@@ -1,5 +1,8 @@
 const express = require('express');
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
+const { financePage } = require('../services/financePage');
+const { requireUnambiguousInvoiceTax } = require('../services/invoiceTax');
 const { authenticate, authorize } = require('../middleware/auth');
 const { uploadLimiter } = require('../middleware/rateLimiter');
 const files = require('../services/jobFiles');
@@ -14,12 +17,12 @@ router.use('/:jobId/sea-bills', require('./seaBills'));
 router.get('/', route(async (req, res) => {
   const where = { ...(req.query.status && { status: choice(req.query.status, ['BOOKED', 'IN_PROGRESS', 'DELIVERED', 'CLOSED', 'CANCELLED']) }),
     ...(req.query.jobType && { jobType: choice(req.query.jobType, ['SENDER', 'RECEIVER'], 'Job type') }),
-    ...(req.query.search && { OR: ['jobNumber', 'title', 'customerReference'].map(field => ({ [field]: { contains: String(req.query.search).slice(0, 200), mode: 'insensitive' } })) }) };
-  const jobs = await prisma.jobOrder.findMany({ where, include: jobInclude, orderBy: { createdAt: 'desc' }, take: 200 });
-  res.json({ data: jobs.map(presentJob) });
+    ...(req.query.search && { OR: [...['jobNumber', 'title', 'customerReference', 'originCity', 'destCity'].map(field => ({ [field]: { contains: String(req.query.search).slice(0, 200), mode: 'insensitive' } })), { customer: { name: { contains: String(req.query.search).slice(0, 200), mode: 'insensitive' } } }] }) };
+  const result = await listPage(prisma.jobOrder, { where, include: jobInclude, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }, req.query);
+  res.json({ ...result, data: result.data.map(presentJob) });
 }));
 router.get('/finance', route(async (req, res) => {
-  const jobs = (await prisma.jobOrder.findMany({ where: { status: { not: 'CANCELLED' } }, include: jobInclude, orderBy: { createdAt: 'desc' } })).map(presentJob);
+  const jobs = (await prisma.jobOrder.findMany({ where: { status: { not: 'CANCELLED' } }, include: jobInclude, orderBy: [{ createdAt: 'desc' },{id:'desc'}] })).map(presentJob);
   const groups = {};
   for (const job of jobs) {
     groups[job.currency] ||= { currency: job.currency, jobs: 0, revenue: money(0), approvedCost: money(0), estimatedProfit: money(0), grossProfit: money(0), receivable: money(0), payable: money(0), internalCost: money(0), vendorCost: money(0), internalExpensePaid: money(0), internalOutstanding: money(0) };
@@ -35,7 +38,12 @@ router.get('/finance', route(async (req, res) => {
     const days = charge.dueDate && balance.gt(0) ? Math.max(0, Math.floor((Date.now() - charge.dueDate.getTime()) / 86400000)) : 0;
     return { id: charge.id, jobId: job.id, jobNumber: job.jobNumber, currency: job.currency, vendorName: charge.vendor?.name, costCategory: charge.costCategory, description: charge.description, dueDate: charge.dueDate, balance: balance.toFixed(2), daysOverdue: days };
   }));
-  res.json({ groups: Object.values(groups), jobs, invoices, payables: balances('VENDOR'), internalExpenses: balances('INTERNAL'), alerts: jobs.flatMap(job => job.alerts.map(alert => ({ ...alert, jobId: job.id, jobNumber: job.jobNumber }))) });
+  const payload = { groups: Object.values(groups), jobs, invoices, payables: balances('VENDOR'), internalExpenses: balances('INTERNAL'), alerts: jobs.flatMap(job => job.alerts.map(alert => ({ ...alert, jobId: job.id, jobNumber: job.jobNumber }))) };
+  res.json(req.query.page||req.query.limit||req.query.financeTab||req.query.export ? financePage(payload,req.query) : payload);
+}));
+router.get('/:id/activity', route(async (req,res)=>{
+  fail(await prisma.jobOrder.findUnique({where:{id:req.params.id},select:{id:true}}),'Job order not found',404);
+  res.json(await listPage(prisma.activityLog,{where:{entity:'JobOrder',entityId:req.params.id},include:{user:{select:{name:true}}},orderBy:[{createdAt:'desc'},{id:'desc'}]},req.query));
 }));
 router.post('/', authorize(...FINANCE), route(async (req, res) => {
   const result = await transaction(async tx => {
@@ -116,6 +124,7 @@ router.put('/:id/charges/:chargeId', authorize(...OPERATORS), route(async (req, 
     const charge = await tx.jobCharge.findFirst({ where: { id: req.params.chargeId, jobId: req.params.id } });
     fail(charge, 'Charge not found', 404);
     fail(charge.status === 'PROPOSED', 'Only proposed charges can be edited', 409);
+    fail(!charge.tariffSnapshot, 'Tariff snapshot charges cannot be edited; propose an explicit adjustment separately', 409);
     const updated = await tx.jobCharge.update({ where: { id: charge.id }, data: { description: text(req.body.description, 'Description', 300), estimatedAmount: decimal(req.body.estimatedAmount),
       ...(charge.kind === 'COST' ? await costFields(tx, req.params.id, req.body, charge) : {}), dueDate: date(req.body.dueDate, true), notes: text(req.body.notes, 'Notes', 2000, true) } });
     await audit(tx, req.user, 'CHARGE_UPDATED', 'JobOrder', req.params.id, { chargeId: charge.id });
@@ -187,6 +196,7 @@ router.post('/:id/invoices', authorize(...FINANCE), route(async (req, res) => {
     const freight = sum(charges, charge => charge.actualAmount ?? charge.estimatedAmount);
     fail(freight.gt(0), 'Invoice amount must be positive');
     const tax = decimal(req.body.taxAmount ?? 0, 'Tax amount');
+    requireUnambiguousInvoiceTax(charges, tax);
     fail(freight.plus(tax).lte('999999999999'), 'Invoice total exceeds limit');
     const invoiceDate = date(req.body.invoiceDate || new Date());
     const dueDate = req.body.dueDate ? date(req.body.dueDate) : new Date(invoiceDate.getTime() + company.paymentTermsDays * 86400000);
@@ -203,9 +213,10 @@ router.post('/:id/payments', authorize(...FINANCE), route(async (req, res) => {
 }));
 router.put('/:id/invoices/:invoiceId', route(async (req, res) => {
   const invoice = await transaction(async tx => {
-    await mutableJob(tx, req.params.id); const current = await tx.invoice.findFirst({ where: { id: req.params.invoiceId, jobId: req.params.id } });
+    await mutableJob(tx, req.params.id); const current = await tx.invoice.findFirst({ where: { id: req.params.invoiceId, jobId: req.params.id }, include: { items: { include: { charge: { select: { tariffSnapshot: true } } } } } });
     fail(current?.status === 'PENDING', 'Only draft invoices can be edited', 409);
-    const tax = decimal(req.body.taxAmount ?? current.gstAmount); const dueDate = date(req.body.dueDate || current.dueDate, true);
+    const tax = decimal(req.body.taxAmount ?? String(current.gstAmount)); const dueDate = date(req.body.dueDate || current.dueDate, true);
+    requireUnambiguousInvoiceTax(current.items.map(item => item.charge), tax);
     fail(!dueDate || dueDate >= current.invoiceDate, 'Invoice due date must not precede invoice date');
     const updated = await tx.invoice.update({ where: { id: current.id }, data: { gstAmount: tax.toNumber(), totalAmount: money(current.freightAmount).plus(tax).toNumber(), dueDate, notes: text(req.body.notes ?? current.notes, 'Notes', 2000, true) } });
     await audit(tx, req.user, 'INVOICE_DRAFT_UPDATED', 'JobOrder', req.params.id, { invoiceId: updated.id }); return updated;

@@ -6,6 +6,7 @@ const { validate, createRFQRules, submitQuoteRules, paginationRules } = require(
 
 const router = express.Router();
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const { choice, CURRENCIES, transaction, vendor, fail, audit, route } = require('../services/jpt');
 
 function generateRFQNumber() {
@@ -16,7 +17,6 @@ function generateRFQNumber() {
 router.get('/', authenticate, paginationRules, validate, async (req, res, next) => {
   try {
     const { page = 1, limit = 20, status, search } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
 
     const where = {
       ...(status && { status }),
@@ -24,25 +24,24 @@ router.get('/', authenticate, paginationRules, validate, async (req, res, next) 
         OR: [
           { rfqNumber: { contains: search, mode: 'insensitive' } },
           { title: { contains: search, mode: 'insensitive' } },
+          { originCity: { contains: search, mode: 'insensitive' } },
+          { destCity: { contains: search, mode: 'insensitive' } },
         ],
       }),
     };
 
-    const [rfqs, total] = await Promise.all([
-      prisma.rFQ.findMany({
-        where, skip, take: Number(limit),
+    const result = await listPage(prisma.rFQ, {
+        where,
         include: {
           shipper: { select: { id: true, name: true } },
           goodsType: { select: { id: true, name: true } },
           createdBy: { select: { id: true, name: true } },
           _count: { select: { quotes: true } },
         },
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.rFQ.count({ where }),
-    ]);
-
-    res.json({ data: rfqs, total, page: Number(page), limit: Number(limit) });
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      }, { page, limit });
+    const rfqs = result.data;
+    res.json({ ...result, data: rfqs });
   } catch (err) { next(err); }
 });
 

@@ -5,6 +5,7 @@ const { validate, createCompanyRules, paginationRules } = require('../middleware
 
 const router = express.Router();
 const prisma = require('../prisma');
+const { listPage } = require('../services/pagination');
 const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'];
 const { text, integer, decimal, audit, transaction, fail } = require('../services/jpt');
 const { internalCompany } = require('../services/access');
@@ -21,18 +22,15 @@ function customerFields(body) {
 router.get('/', authenticate, paginationRules, validate, async (req, res, next) => {
   try {
     const { page = 1, limit = 20, search, type } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
     const where = {
       isActive: true,
-      ...(search && { name: { contains: search, mode: 'insensitive' } }),
+      ...(search && { OR: ['name','city','email','contactPerson'].map(key=>({[key]:{contains:search,mode:'insensitive'}})) }),
       ...(type && { type }),
       ...(req.query.internal === 'true' && { isInternal: true }),
     };
-    const [companies, total] = await Promise.all([
-      prisma.company.findMany({ where, skip, take: Number(limit), orderBy: { name: 'asc' } }),
-      prisma.company.count({ where }),
-    ]);
-    res.json({ data: companies, total, page: Number(page), limit: Number(limit) });
+    const result = await listPage(prisma.company, { where, orderBy: [{ name: 'asc' }, { id: 'asc' }] }, { page, limit });
+    const companies = result.data;
+    res.json({ ...result, data: companies });
   } catch (err) { next(err); }
 });
 
