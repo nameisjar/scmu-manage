@@ -69,6 +69,7 @@ async function loadAction(tx, action, entityId, body = {}) {
         // context. Do not fingerprint the bill version (proposal batches bump it)
         // or re-read mutable tariff prices: the charge's price snapshot is final.
         raw={...raw,blRegisterContext:{id:bill.id,billNumber:bill.billNumber,carrierName:bill.carrierName,containers:bill.containers,registerData:bill.registerData}};
+        targetUrl = `/bl-register/${bill.id}`;
       }
     }
     overview = [...basics(job), ...fields([['Charge type', raw.kind], ['Description', raw.description], ['Cost source', raw.costSource], ['Cost category', raw.costCategory], ['Vendor', raw.vendor?.name], ['Estimated amount', raw.estimatedAmount], ['Proposed actual amount', payload.actualAmount], ['Notes', raw.notes]])];

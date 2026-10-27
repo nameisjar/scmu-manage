@@ -77,6 +77,8 @@ model Company {
   paymentTermsDays Int @default(30)
   creditLimit   Decimal @default(0) @db.Decimal(18, 2)
   notes         String?
+  documentPolicy String @default("BL_ONLY")
+  includeInPackingHeader Boolean @default(true)
   isActive     Boolean     @default(true)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
@@ -725,10 +727,75 @@ model PackingList {
   @@map("packing_lists")
 }
 
+model Vessel {
+  id             String @id @default(uuid())
+  name           String
+  normalizedName String @unique
+  carrierName    String?
+  imoNumber      String?
+  isActive       Boolean @default(true)
+  version        Int @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  aliases        VesselAlias[]
+  voyages        Voyage[]
+  bills          SeaBill[]
+  @@map("vessels")
+}
+
+model VesselAlias {
+  key      String @id
+  name     String
+  vesselId String
+  vessel   Vessel @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  @@index([vesselId])
+  @@map("vessel_aliases")
+}
+
+model Voyage {
+  id               String @id @default(uuid())
+  vesselId         String
+  vessel           Vessel @relation(fields: [vesselId], references: [id], onDelete: Restrict)
+  number           String
+  normalizedNumber String
+  period           String
+  portOfLoading    String?
+  portOfDischarge  String?
+  departureDate    DateTime?
+  arrivalDate      DateTime?
+  isActive         Boolean @default(true)
+  version          Int @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  bills            SeaBill[]
+  @@unique([vesselId, normalizedNumber, period])
+  @@index([vesselId])
+  @@map("voyages")
+}
+
+model BLImportSession {
+  id           String @id @default(uuid())
+  filename     String @unique
+  originalName String
+  mimeType     String
+  size         Int
+  hash         String
+  createdById  String
+  extracted    Json
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  @@index([expiresAt])
+  @@map("bl_import_sessions")
+}
+
 model SeaBill {
   id              String @id @default(uuid())
   registerNumber  String? @unique
   registerData    Json @default("{}")
+  // Neutral book nominal: never an invoice, charge, revenue, cost, or payment.
+  registerAmount  Decimal? @db.Decimal(18, 2)
+  archivedAt      DateTime?
+  archivedById    String?
   registerIdentity String? @unique
   jobId           String
   job             JobOrder @relation(fields: [jobId], references: [id], onDelete: Cascade)
@@ -737,6 +804,10 @@ model SeaBill {
   documentId      String @unique
   document        JobDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
   documentKind    String @default("BILL_OF_LADING")
+  vesselId        String?
+  vessel          Vessel? @relation(fields: [vesselId], references: [id], onDelete: Restrict)
+  voyageId        String?
+  voyage          Voyage? @relation(fields: [voyageId], references: [id], onDelete: Restrict)
   billNumber      String?
   issueDate       DateTime?
   carrierName     String?
@@ -746,6 +817,8 @@ model SeaBill {
   portOfDischarge String?
   shipperName     String?
   consigneeName   String?
+  notifyPartyName String?
+  onBoardDate     DateTime?
   containers      Json @default("[]")
   packages        Int @default(0)
   grossWeightKg   Decimal @default(0) @db.Decimal(16, 3)
@@ -774,6 +847,7 @@ model SeaBill {
   updatedAt       DateTime @updatedAt
 
   @@index([jobId, shipmentId])
+  @@index([vesselId, voyageId])
   @@map("sea_bills")
 }
 
@@ -812,6 +886,15 @@ model SeaBillFile {
 
   @@index([billId, createdAt])
   @@map("sea_bill_files")
+}
+
+model DocumentFilePurge {
+  filename    String @id
+  requestedAt DateTime @default(now())
+  attempts    Int @default(0)
+  lastError   String?
+
+  @@map("document_file_purges")
 }
 
 model SeaBillRevision {

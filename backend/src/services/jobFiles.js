@@ -12,6 +12,18 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, callback) => types[file.mimetype] ? callback(null, true) : callback(Object.assign(new Error('Only PDF, JPEG, PNG and WebP files are allowed'), { status: 415 })),
 }).single('file');
+// Generic attachments are stored privately; only known preview formats are displayed inline.
+const uploadAny = multer({
+  storage: multer.diskStorage({destination:directory,filename:(req,file,done)=>{
+    const suffix=path.extname(file.originalname).toLowerCase();done(null,randomUUID()+(/^[.][a-z0-9]{1,12}$/.test(suffix)?suffix:''));
+  }}), limits:{fileSize:5*1024*1024,files:1,fields:10},
+}).single('file');
+async function validateAttachment(file){
+ fail(file,'Select a document file');fail(file.size>0,'File kosong tidak dapat disimpan.');
+ if(types[file.mimetype])await validateFile(file);
+ else if(/\.xlsx$/i.test(file.originalname))file.mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+ else file.mimetype='application/octet-stream';
+}
 
 async function validateFile(file) {
   fail(file, 'Select a document file');
@@ -29,4 +41,4 @@ function filePath(filename) {
   return path.join(directory, filename);
 }
 const removeFile = filename => filename ? fs.promises.unlink(filePath(filename)).catch(() => {}) : Promise.resolve();
-module.exports = { upload, validateFile, filePath, removeFile };
+module.exports = { upload, uploadAny, validateFile, validateAttachment, filePath, removeFile };

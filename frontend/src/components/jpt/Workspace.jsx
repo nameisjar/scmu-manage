@@ -107,15 +107,18 @@ function UrlDataTable({paginationKey,rows,...props}) {
   const paging=usePagination(paginationKey);usePageCorrection(paging,rows.length);
   return <TableBody {...props} rows={rows} pagination={{...paging,total:rows.length}} />;
 }
-function TableBody({ columns, rows, empty = 'No records yet', pagination, resetKey }) {
+function TableBody({ columns, columnGroups, rows, empty = 'No records yet', pagination, resetKey }) {
   const { t } = useLanguage();
   const [page,setPage]=useState(1);const [limit,setLimit]=useState(10);
   useEffect(()=>setPage(1),[resetKey]);
   const paging=pagination||{page,limit,total:rows.length,onPageChange:setPage,onLimitChange:value=>{setLimit(value);setPage(1);}};
   const info=pageInfo(paging.total,paging.page,paging.limit);const visible=pagination===false||paging.server?rows:rows.slice((info.page-1)*paging.limit,info.page*paging.limit);
   useEffect(()=>{if(!pagination&&page!==info.page)setPage(info.page);},[pagination,page,info.page]);
-  return <div className="card overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm" aria-busy={paging.loading}><thead><tr className="border-b border-zinc-800">
-    {columns.map(column => <th key={column.key} className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 ${column.align === 'right' ? 'text-right' : 'text-left'} ${column.className || ''}`}>{t(column.label)}</th>)}
+  const groups=(columnGroups||[]).map(group=>({...group,colSpan:columns.filter(column=>group.keys.includes(column.key)).length})).filter(group=>group.colSpan);
+  return <div className="card overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-max text-sm" aria-busy={paging.loading}><thead>{groups.length>0&&<tr className="border-b border-zinc-800/70 bg-zinc-950/60">
+    {groups.map(group=><th key={group.label} colSpan={group.colSpan} className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-widest text-brand-300/80">{t(group.label)}</th>)}
+  </tr>}<tr className="border-b border-zinc-800">
+    {columns.map(column => <th key={column.key} className={`px-4 py-3 whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-zinc-500 ${column.align === 'right' ? 'text-right' : 'text-left'} ${column.className || ''}`}>{t(column.label)}</th>)}
   </tr></thead><tbody className="divide-y divide-zinc-800/60">{paging.loading?<tr><td colSpan={columns.length}><Spinner /></td></tr>:visible.length ? visible.map((row,index) => <tr key={row.id??index} className="hover:bg-zinc-900/40">{columns.map(column => <td key={column.key} className={`px-4 py-3 text-zinc-300 align-top ${column.align === 'right' ? 'text-right' : ''} ${column.className || ''}`}>{column.render ? column.render(row) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-zinc-500">{t(empty)}</td></tr>}</tbody></table></div>{pagination!==false&&<Pagination {...paging} page={info.page} />}</div>;
 }
 export function Tabs({ items, value, onChange }) {

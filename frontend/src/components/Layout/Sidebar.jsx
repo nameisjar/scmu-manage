@@ -1,35 +1,22 @@
 import { useBL as useLanguage } from '../../i18n/bl.mjs';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import {
-  LayoutDashboard, ClipboardList, Package, Users, Building2,
-  Receipt, BarChart3, Map, LogOut, TruckIcon, UserCheck,
-  FileBarChart, Settings
-} from 'lucide-react';
+import { LayoutDashboard, ClipboardList, Users, LogOut, Settings, PackageOpen, Calculator, ReceiptText, UserCheck, Building2, Ship } from 'lucide-react';
 import Brand from '../common/Brand';
 import LanguageSwitcher from '../common/LanguageSwitcher';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { to: '/bl-register', label: 'B/L register', icon: ClipboardList },
-  { to: '/container-operations', label: 'Container operations', icon: TruckIcon },
-  { to: '/jpt-tariffs', label: 'JPT tariffs', icon: Receipt },
-  { to: '/sales-quotations', label: 'Commercial quotations', icon: ClipboardList, staff: true },
-  { to: '/jobs', label: 'Job orders', icon: Package, staff: true },
-  { to: '/job-finance', label: 'Job finance', icon: Receipt, staff: true },
-  { to: '/approvals', label: 'Director approvals', icon: UserCheck },
-  { to: '/rfq', label: 'RFQ Indenting', icon: ClipboardList },
-  { to: '/shipments', label: 'Shipments', icon: Package },
-  { to: '/fleet', label: 'Fleet', icon: TruckIcon },
-  { to: '/drivers', label: 'Drivers', icon: UserCheck },
-  { to: '/companies', label: 'Companies', icon: Building2 },
-  { to: '/invoices', label: 'Invoices', icon: Receipt },
-  { to: '/routes', label: 'Routes', icon: Map },
-  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/reports', label: 'Reports', icon: FileBarChart },
+  { to: '/bl-register', label: 'Pengiriman', icon: ClipboardList },
+  { to: '/packing-lists', label: 'Packing List', icon: PackageOpen },
+  { to: '/tariffs', label: 'Tarif & Biaya', icon: Calculator },
+  { to: '/billing-tax', label: 'Tagihan & Pajak', icon: ReceiptText },
+  { to: '/approvals', label: 'Persetujuan Direktur', icon: UserCheck },
 ];
 
 const ADMIN_ITEMS = [
+  { to: '/vessels', label: 'Kapal', icon: Ship },
+  { to: '/partners', label: 'Mitra/JPT', icon: Building2 },
   { to: '/users', label: 'Users', icon: Users },
 ];
 
@@ -47,7 +34,7 @@ export default function Sidebar() {
       : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'}`;
 
   return (
-    <aside className="w-60 flex-shrink-0 h-screen sticky top-0 flex flex-col border-r border-zinc-800 bg-zinc-950">
+    <aside className="app-sidebar w-60 flex-shrink-0 h-full min-h-0 flex flex-col border-r border-zinc-800 bg-zinc-950">
       {/* Logo */}
       <div className="px-5 py-5 border-b border-zinc-800">
         <Brand />
@@ -63,10 +50,10 @@ export default function Sidebar() {
           </NavLink>
         ))}
 
-        {isSuperAdmin() && (
+        {(
           <>
-            <p className="px-3 py-1 text-xs font-semibold text-zinc-600 uppercase tracking-wider mt-4 mb-2">{tr("Admin")}</p>
-            {ADMIN_ITEMS.map(({ to, label, icon: Icon }) => (
+            <p className="px-3 py-1 text-xs font-semibold text-zinc-600 uppercase tracking-wider mt-4 mb-2">{tr("Master Data")}</p>
+            {ADMIN_ITEMS.filter(item=>item.to!=='/users'||isSuperAdmin()).map(({ to, label, icon: Icon }) => (
               <NavLink key={to} to={to} className={linkClass}>
                 <Icon size={16} className="flex-shrink-0" />
                 <span>{tr(label)}</span>

@@ -9,7 +9,12 @@ function store() {
   const matches = (row, where = {}) => Object.entries(where).every(([key, value]) => {
     if (key === 'AND') return value.every(part => matches(row, part));
     if (key === 'OR') return value.some(part => matches(row, part));
+    if (value===null) return row[key]==null;
     if (value && typeof value === 'object') {
+      if ('path' in value) {
+        const nested=value.path.reduce((current,key)=>current?.[key],row[key]);
+        return value.equals===require('@prisma/client').Prisma.AnyNull?nested==null:nested===value.equals;
+      }
       if ('not' in value) return row[key] !== value.not;
       if ('equals' in value) return String(row[key] ?? '').toLowerCase() === String(value.equals).toLowerCase();
     }

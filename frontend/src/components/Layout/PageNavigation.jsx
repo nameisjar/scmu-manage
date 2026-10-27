@@ -65,6 +65,13 @@ export function useDetailNavigation(title, status) {
   const navigation = useContext(Context); const { pathname } = useLocation(); const setMetadata = navigation?.setMetadata;
   useEffect(() => { setMetadata?.({ pathname, title, status }); }, [setMetadata, pathname, title, status]);
 }
+export function useWorkspaceNavigation(fallback = '/bl-register') {
+  const navigation = useContext(Context); const navigate = useNavigate();
+  return {
+    back: navigation?.back || (() => navigate(fallback)),
+    scrollToTop: () => { if (navigation?.main.current) { navigation.main.current.scrollTop = 0; navigation.checkpoint(); } },
+  };
+}
 export function usePageQuery() {
   const [params, setParams] = useSearchParams();
   const update = (changes) => setParams(previous => { const next = new URLSearchParams(previous); for (const [key, value] of Object.entries(changes)) { if (value === '' || value === null || value === undefined) next.delete(key); else next.set(key, String(value)); } return next; }, { replace: true });
@@ -74,14 +81,14 @@ export function NavigationScrollArea({ children }) {
   const navigation = useContext(Context); const location = useLocation(); const { t } = useLanguage();
   const module = detailModule(location.pathname); const info = navigation.metadata?.pathname === location.pathname ? navigation.metadata : null;
   const origin = navigation.entry?.back; const destination = origin && localPage(origin.url) ? origin.url : `/${module}`;
-  return <main ref={navigation.main} className="flex-1 min-w-0 overflow-y-auto" data-page-scroll onScroll={navigation.remember} onClickCapture={navigation.checkpoint} onWheel={navigation.stopRestoring} onTouchStart={navigation.stopRestoring} onKeyDown={event => { if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)) navigation.stopRestoring(); }}>
-    {module && <nav aria-label={t('Page navigation')} className="sticky top-0 z-40 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur shadow-sm" data-page-navigation>
+  return <main ref={navigation.main} className="app-workspace flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain" data-page-scroll onScroll={navigation.remember} onClickCapture={navigation.checkpoint} onWheel={navigation.stopRestoring} onTouchStart={navigation.stopRestoring} onKeyDown={event => { if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)) navigation.stopRestoring(); }}>
+    {module && module!=='bl-register' && <nav aria-label={t('Page navigation')} className="sticky top-0 z-40 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur shadow-sm" data-page-navigation>
       <div className="max-w-screen-2xl mx-auto flex flex-wrap items-center gap-x-5 gap-y-2 px-6 py-3">
         <button type="button" data-page-back onClick={navigation.back} className="inline-flex max-w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-brand-300 hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"><ArrowLeft size={17} className="shrink-0" /><span className="min-w-0 text-left">{t('Back to {page}', { page: t(pageLabel(destination)) })}</span></button>
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-100" title={info?.title}>{info?.title || t(pageLabel(location.pathname))}</span>
         {info?.status && <StatusBadge status={info.status} />}
       </div>
     </nav>}
-    <div ref={navigation.content} className="p-6 max-w-screen-2xl mx-auto">{children}</div>
+    <div ref={navigation.content} className="w-full max-w-screen-2xl mx-auto p-6">{children}</div>
   </main>;
 }

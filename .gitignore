@@ -14,6 +14,12 @@ frontend/node_modules/
 frontend/dist/
 frontend/build/
 
+# Generated browser test reports and disposable browser profiles
+.test-output/
+
+# Generated document previews
+/tmp/pdfs/
+
 # Upload files
 backend/uploads/
 

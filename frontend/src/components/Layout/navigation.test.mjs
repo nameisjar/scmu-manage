@@ -3,12 +3,10 @@ import assert from 'node:assert/strict';
 import { detailModule, localPage, pageLabel, positivePage } from './navigation.mjs';
 
 test('return navigation accepts only internal SCMU pages, including filtered sources', () => {
-  for (const url of ['/','/jobs?status=BOOKED&search=Merauke','/jobs/id?tab=finance','/approvals?approvalStatus=SUBMITTED','/sales-quotations/id']) assert.equal(localPage(url), true);
-  for (const url of ['https://example.com','//example.com','/\\example.com','/login','/unknown','/jobs\r\nLocation: test',null]) assert.equal(localPage(url), false);
-  assert.equal(pageLabel('/approvals?approvalStatus=all'), 'Director approvals');
-  assert.equal(pageLabel('/jobs/123?tab=transport'), 'Job order');
-  assert.equal(detailModule('/sales-quotations/123'), 'sales-quotations');
-  assert.equal(detailModule('/shipments/new'), 'shipments');
+  for (const url of ['/','/bl-register?search=Merauke','/bl-register/id?tab=documents','/users','/settings']) assert.equal(localPage(url), true);
+  for (const url of ['https://example.com','//example.com','/\\example.com','/login','/unknown','/jobs','/jobs\r\nLocation: test',null]) assert.equal(localPage(url), false);
+  assert.equal(pageLabel('/bl-register?search=Merauke'), 'Pengiriman');
+  assert.equal(detailModule('/bl-register/id'), 'bl-register');
   assert.equal(detailModule('/jobs'), null);
 });
 test('malformed pagination falls back to the first page', () => {

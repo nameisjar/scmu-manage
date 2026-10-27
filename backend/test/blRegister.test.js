@@ -87,7 +87,7 @@ test('register invalid container structure and empty-return state fail validatio
  for(const containers of [{},[null],[{number:'A',status:'EMPTY_RETURNED'}]]) assert.throws(()=>register.normalize({containers}),err=>err.status===422);
 });
 test('register validates register object, chronological schedule and explicit version before database edits',()=>{
- for(const body of [{register:'bad'},{register:{departureDate:'2026-10-02',arrivalDate:'2026-10-01'}}]) assert.throws(()=>register.normalize(body),err=>err.status===422);
+ for(const body of [{register:'bad'},{register:{dateMeaning:'VESSEL',departureDate:'2026-10-02',arrivalDate:'2026-10-01'}}]) assert.throws(()=>register.normalize(body),err=>err.status===422);
 });
 test('register validates operational containers while preserving unknown legacy size and explicit date meaning',()=>{
  const clean=register.normalize({register:{arrivalDate:'2026-10-01'},containers:[{number:'b',size:'21',status:'DOORING',plannedDeliveryAt:'2026-10-02'},{number:'a'}]});
@@ -104,4 +104,18 @@ test('legacy BL editing preserves operational JSON without making operations mat
   assert.equal(original.containers[0].driverName,'Driver');
   const snapshot = sea.contentSnapshot(original);
   assert.deepEqual(snapshot.containers,[{number:'BOX1',seal:'s'}]);
+});
+
+test('B/L workspace transcribes variable packing formats and reports document differences without rewriting source identity',()=>{
+ const workspace=require('../src/services/blWorkspace');
+ const bill={containers:[{number:'SPNU1',seal:'SEAL-BL',size:'40'}],files:[{id:'pl',category:'PACKING_LIST'}],packages:2,volumeCbm:require('../src/services/jpt').money('0.3000')};
+ const operational=workspace.normalizeOperational({packing:{status:'CONFIRMED',headerStatus:'READY',headerNumber:'KPL-1',sourceFileIds:['pl'],groups:[{sourceFileId:'pl',containerNumber:'SPNU1',sealNumber:'SEAL-PL',size:'40',recipientName:'Penerima Demo',items:[{description:'Paket demo',quantity:'2',packages:2,volumeCbm:'0.3000'}]}]},deadlines:{storageUntil:'2026-04-23',demurrageFrom:'2026-05-02'},unloading:{status:'PENDING'}},bill);
+ const checked=workspace.reconciliation(bill,operational);
+ assert.equal(operational.packing.groups[0].items[0].description,'Paket demo');assert.equal(checked.status,'MISMATCH');assert.ok(checked.issues.includes('SEAL_DIFFERENCE'));assert.equal(bill.containers[0].seal,'SEAL-BL');
+});
+
+test('B/L workspace requires manual confirmation evidence and discrepancy notes',()=>{
+ const workspace=require('../src/services/blWorkspace');const bill={containers:[{number:'C1'}],files:[],packages:0,volumeCbm:0};
+ assert.throws(()=>workspace.normalizeOperational({packing:{status:'CONFIRMED',sourceFileIds:[],groups:[]},unloading:{status:'PENDING'}},bill),/Attach and transcribe/);
+ assert.throws(()=>workspace.normalizeOperational({packing:{status:'DRAFT',sourceFileIds:[],groups:[]},unloading:{status:'DISCREPANCY',inspectedAt:'2026-10-26',staffName:'Admin'}},bill),/Explain/);
 });

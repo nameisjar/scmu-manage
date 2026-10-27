@@ -2,7 +2,8 @@ param(
     [string]$PostgresBin = '',
     [int]$DatabasePort = 55432,
     [int]$ApiPort = 5000,
-    [int]$FrontendPort = 5173
+    [int]$FrontendPort = 5173,
+    [switch]$SkipSeed
 )
 
 $ErrorActionPreference = 'Stop'
@@ -69,7 +70,7 @@ try {
         $previousServices = Get-Content $processFile -Raw | ConvertFrom-Json
         foreach ($service in $previousServices.PSObject.Properties) {
             $serviceProcess = Get-Process -Id $service.Value.Id -ErrorAction SilentlyContinue
-            if ($serviceProcess -and $serviceProcess.ProcessName -eq 'node' -and $serviceProcess.StartTime.ToUniversalTime().ToString('o') -eq $service.Value.StartTime) {
+            if ($serviceProcess -and $serviceProcess.ProcessName -eq 'node' -and $serviceProcess.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ') -eq ([datetimeoffset]$service.Value.StartTime).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')) {
                 Stop-Process -Id $serviceProcess.Id
                 if (!$serviceProcess.WaitForExit(10000)) { throw "Failed to stop demo service: $($service.Name)" }
             }
@@ -96,7 +97,7 @@ try {
         }
         Invoke-Checked 'node' @('node_modules/prisma/build/index.js', 'generate')
         Invoke-Checked 'node' @('node_modules/prisma/build/index.js', 'migrate', 'deploy')
-        Invoke-Checked 'node' @('prisma/seed.js')
+        if (!$SkipSeed) { Invoke-Checked 'node' @('prisma/seed.js') }
         New-Item -ItemType Directory -Path 'uploads/pods' -Force | Out-Null
     } finally { Pop-Location }
 
@@ -123,7 +124,7 @@ try {
         if ($listener) {
             $owned = $processInfo[$service.Name]
             $existingProcess = if ($owned) { Get-Process -Id $owned.Id -ErrorAction SilentlyContinue }
-            if (!$owned -or !$existingProcess -or $listener[0].OwningProcess -ne $owned.Id -or $existingProcess.StartTime.ToUniversalTime().ToString('o') -ne $owned.StartTime) {
+            if (!$owned -or !$existingProcess -or $listener[0].OwningProcess -ne $owned.Id -or $existingProcess.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ') -ne ([datetimeoffset]$owned.StartTime).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')) {
                 throw "Port $($service.Port) is already used by another process. Choose another demo port or stop that service."
             }
         } else {

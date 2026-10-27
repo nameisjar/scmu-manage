@@ -57,7 +57,7 @@ export function StatusBadge({ status }) {
 // Button
 export function Button({ children, variant = 'primary', size = 'md', className = '', ...props }) {
 
-  const base = 'inline-flex items-center gap-2 font-medium rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed';
+  const base = `btn btn-${variant} inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed`;
   const variants = {
     primary: 'bg-brand-500 text-white hover:bg-brand-600 active:bg-brand-700',
     secondary: 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700 border border-zinc-700',

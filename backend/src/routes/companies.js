@@ -16,6 +16,8 @@ function customerFields(body) {
     ...(body.paymentTermsDays !== undefined && { paymentTermsDays: integer(body.paymentTermsDays, 'Payment terms', 0, 365) }),
     ...(body.creditLimit !== undefined && { creditLimit: decimal(body.creditLimit, 'Credit limit') }),
     ...(body.notes !== undefined && { notes: text(body.notes, 'Notes', 3000, true) }),
+    ...(body.documentPolicy !== undefined && { documentPolicy: require('../services/jpt').choice(body.documentPolicy, ['BL_ONLY','BL_AND_PACKING'], 'Document policy') }),
+    ...(body.includeInPackingHeader !== undefined && { includeInPackingHeader: Boolean(body.includeInPackingHeader) }),
   };
 }
 

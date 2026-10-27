@@ -9,7 +9,7 @@ if (Test-Path $processFile) {
     $services = Get-Content $processFile -Raw | ConvertFrom-Json
     foreach ($service in $services.PSObject.Properties) {
         $serviceProcess = Get-Process -Id $service.Value.Id -ErrorAction SilentlyContinue
-        if ($serviceProcess -and $serviceProcess.ProcessName -eq 'node' -and $serviceProcess.StartTime.ToUniversalTime().ToString('o') -eq $service.Value.StartTime) {
+        if ($serviceProcess -and $serviceProcess.ProcessName -eq 'node' -and $serviceProcess.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ') -eq ([datetimeoffset]$service.Value.StartTime).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')) {
             Stop-Process -Id $serviceProcess.Id
         }
     }

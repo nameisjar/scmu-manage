@@ -16,6 +16,8 @@ function declared(packing) {
 }
 function contentSnapshot(bill) {
   return { ...Object.fromEntries(metaKeys.map(key => [key, key === 'containers' ? (bill.containers || []).map(({number,seal}) => ({number,seal})) : key === 'issueDate' ? bill[key] ? new Date(bill[key]).toISOString() : null : key === 'grossWeightKg' ? normalized(bill[key], 3) : key === 'volumeCbm' ? normalized(bill[key], 4) : bill[key] ?? null])),
+    ...(bill.notifyPartyName ? {notifyPartyName:bill.notifyPartyName} : {}),
+    ...(bill.onBoardDate ? {onBoardDate:new Date(bill.onBoardDate).toISOString()} : {}),
     transport: bill.shipment ? Object.fromEntries(['mode','carrierId','originCity','destCity','vesselFlight','containerNumber','sealNumber'].map(key=>[key,bill.shipment[key]??null])) : null,
     allocations: (bill.allocations || []).map(row => ({ packingListId: row.packingListId, packages: row.packages, grossWeightKg: row.grossWeightKg == null ? null : normalized(row.grossWeightKg, 3), volumeCbm: row.volumeCbm == null ? null : normalized(row.volumeCbm, 4), scope: row.scope || null, declaredSnapshot: row.declaredSnapshot })).sort((a,b) => a.packingListId.localeCompare(b.packingListId)) };
 }
@@ -62,6 +64,8 @@ function metadata(body, suppliedContainers, registeredContainers = []) {
   fail(new Set(clean.map(row => row.number)).size === clean.length, 'Container numbers must be distinct');
   return { documentKind: choice(body.documentKind || 'BILL_OF_LADING', ['BILL_OF_LADING','SEA_WAYBILL'], 'Sea document type'),
     billNumber: text(body.billNumber, 'BL number', 100, true), issueDate: date(body.issueDate, true),
+    ...(body.onBoardDate!==undefined?{onBoardDate:date(body.onBoardDate,true)}:{}),
+    ...(body.notifyPartyName!==undefined?{notifyPartyName:text(body.notifyPartyName,'Notify party',200,true)}:{}),
     ...Object.fromEntries(['carrierName','vesselName','voyageNumber','portOfLoading','portOfDischarge','shipperName','consigneeName'].map(key => [key, text(body[key], key, 200, true)])),
     containers: clean, packages: integer(body.packages ?? 0, 'Packages', 0), grossWeightKg: decimal(String(body.grossWeightKg ?? 0), 'Gross weight', 3), volumeCbm: decimal(String(body.volumeCbm ?? 0), 'Volume', 4),
     notes: text(body.notes, 'Notes', 3000, true), reviewIssues: text(body.reviewIssues, 'Review issues', 2000, true) };
@@ -107,13 +111,13 @@ async function getBill(tx, jobId, id, version, editing = true) {
   if (editing) await mutableJob(tx, jobId);
   const bill = await tx.seaBill.findFirst({ where: { id, jobId }, include: seaInclude });
   fail(bill, 'Sea transport document not found', 404);
-  if (editing) { fail(bill.shipment.mode === 'SEA' && bill.shipment.status !== 'CANCELLED', 'Select an active sea transport leg', 409); fail(integer(version, 'Version') === bill.version, 'Sea document changed; reload before saving', 409); }
+  if (editing) { fail(!bill.archivedAt&&!bill.registerData?.archivedAt,'Archived register records are read-only',409); fail(bill.shipment.mode === 'SEA' && bill.shipment.status !== 'CANCELLED', 'Select an active sea transport leg', 409); fail(integer(version, 'Version') === bill.version, 'Sea document changed; reload before saving', 409); }
   return bill;
 }
-async function history(tx, user, billId, action, note) {
+async function history(tx, user, billId, action, note, metadata = {}) {
   const bill = await tx.seaBill.findUnique({ where: { id: billId }, include: seaInclude });
   await tx.seaBillRevision.create({ data: { billId, version: bill.version, action, createdById: user?.id, note: text(note, 'Revision note', 2000, true), snapshot: json({ ...contentSnapshot(bill), contentVersion: bill.contentVersion, receiptStatus: receipt(bill), internalStatus: bill.internalStatus, reviewIssues: bill.reviewIssues, notes: bill.notes, reviewedById: bill.reviewedById, reviewedAt: bill.reviewedAt, reviewChecks: bill.reviewChecks, releaseStatus: bill.releaseStatus, releaseMethod: bill.releaseMethod, releaseReference: bill.releaseReference, releaseNote: bill.releaseNote, releaseProofId: bill.releaseProofId, releasedAt: bill.releasedAt, files: bill.files.map(file=>({ id:file.id, category:file.category, originalName:file.originalName, contentVersion:file.contentVersion })) }) } });
-  if (user?.id) await audit(tx, user, action, 'JobOrder', bill.jobId, { seaBillId: billId, version: bill.version });
+  if (user?.id) await audit(tx, user, action, 'JobOrder', bill.jobId, { ...metadata, seaBillId: billId, version: bill.version });
   return getBill(tx, bill.jobId, billId, undefined, false);
 }
 async function registerIdentity(tx, billNumber, before) {
@@ -160,9 +164,12 @@ async function updateBill(tx, user, jobId, id, body) {
 }
 async function attach(tx, user, jobId, id, body, file) {
   const bill = await getBill(tx, jobId, id, body.version);
-  const category = choice(body.category, ['DRAFT','FINAL','RELEASE','DELIVERY_ORDER'], 'Sea attachment category');
-  const externalNumber = text(body.externalNumber, 'Delivery order number', 100, category !== 'DELIVERY_ORDER');
-  const documentDate = date(body.documentDate, category !== 'DELIVERY_ORDER');
+  fail(!bill.archivedAt&&!bill.registerData?.archivedAt, 'Archived register records are read-only', 409);
+  const category = choice(body.category, ['DRAFT','FINAL','RELEASE','DELIVERY_ORDER','PACKING_LIST','INTERNAL_PACKING_LIST','PACKING_HEADER','RECEIVING_REPORT','INVOICE','MANIFEST','WAYBILL','POD','TAX_INVOICE','PPH23_CERTIFICATE','SUPPORTING'], 'Sea attachment category');
+  const referenceRequired=['DELIVERY_ORDER','RECEIVING_REPORT'].includes(category);
+  const externalNumber = text(body.externalNumber, 'Document number', 100, !referenceRequired);
+  const documentDate = date(body.documentDate, !referenceRequired);
+  if(category==='RECEIVING_REPORT')require('./registerFields').calendarDate(body.documentDate,'Tanggal Berita Acara');
   const resets = ['DRAFT','FINAL'].includes(category);
   fail(body.materialChange===undefined || [true,false,'true','false'].includes(body.materialChange), 'Material change flag is invalid');
   const materialChange=body.materialChange===true || body.materialChange==='true';
@@ -170,7 +177,8 @@ async function attach(tx, user, jobId, id, body, file) {
   const note = text(body.note, 'Revision note', 2000, !materialChange);
   const contentVersion=resets && bill.files.some(row=>['DRAFT','FINAL'].includes(row.category)) ? bill.contentVersion+1 : bill.contentVersion;
   const uploaded = await tx.seaBillFile.create({ data: { billId: id, category, contentVersion, filename: file.filename, originalName: text(file.originalname, 'Filename', 255), mimeType: file.mimetype, size: file.size, externalNumber, documentDate, note, uploadedById: user.id } });
-  await tx.seaBill.update({ where: { id }, data: { version: { increment: 1 }, ...(resets ? { ...invalidate, contentVersion } : {}), ...(materialChange ? { reviewIssues: note } : {}) } });
+  if(category==='INTERNAL_PACKING_LIST')await tx.seaBill.update({where:{id},data:{registerData:{...bill.registerData,internalPackingList:{filename:uploaded.filename,sourceType:'UPLOADED',number:externalNumber||uploaded.originalName}}}});
+  await tx.seaBill.update({ where: { id }, data: { version: { increment: 1 }, ...(resets ? { ...invalidate, contentVersion, registerData: { ...(bill.registerData || {}), documentState: { ...(bill.registerData?.documentState || {}), blMissing: false } } } : {}), ...(materialChange ? { reviewIssues: note } : {}) } });
   if (resets) await tx.jobDocument.update({ where: { id: bill.documentId }, data: { filename: uploaded.filename, originalName: uploaded.originalName, mimeType: uploaded.mimeType, size: uploaded.size, uploadedById: user.id, status: 'UPLOADED', verifiedById: null } });
   return history(tx, user, id, 'SEA_FILE_UPLOADED', note);
 }

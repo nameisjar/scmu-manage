@@ -25,11 +25,12 @@ function estimate(bill, tariffs, tariffIds) {
     fail(!tariff.confirmationRequired, 'Selected tariff requires confirmation');
     fail((!tariff.effectiveFrom || new Date(tariff.effectiveFrom)<=now) && (!tariff.effectiveTo || new Date(tariff.effectiveTo)>=now), 'Selected tariff is outside its effective dates');
     fail(!tariff.carrierName || tariff.carrierName.trim().toLowerCase() === (bill.carrierName||'').trim().toLowerCase(), 'Selected tariff does not match the BL carrier');
-    const quantity = tariff.unit === 'BL' ? 1 : (bill.containers || []).filter(row => !tariff.size || row.size === tariff.size).length;
+    const containers=bill.containers||[];const manual=bill.register?.[`quantity${tariff.size}`]??bill.registerData?.register?.[`quantity${tariff.size}`];
+    const quantity = tariff.unit === 'BL' ? 1 : containers.some(row=>row.size) ? containers.filter(row => !tariff.size || row.size === tariff.size).length : tariff.size ? Number(manual||0) : ['20','21','40'].reduce((sum,size)=>sum+Number((bill.register?.[`quantity${size}`]??bill.registerData?.register?.[`quantity${size}`])||0),0);
     fail(quantity > 0, 'No matching containers for selected tariff; unknown size and size 21 never borrow size 20');
     const unitPrice = money(tariff.unitPrice).toFixed(2);
     return { tariffId:id, description:tariff.description, unit:tariff.unit, quantity, unitPrice, amount:money(unitPrice).mul(quantity).toFixed(2), vatIncluded:tariff.vatIncluded, vatRate:tariff.vatRate == null ? null : String(tariff.vatRate) };
   });
-  return { lines, total:sum(lines,row=>row.amount).toFixed(2), currency:'IDR', warnings:[NOTICE] };
+  return { lines, total:sum(lines,row=>row.amount).toFixed(2), currency:'IDR', warnings:['Calculation uses explicit container details when available; otherwise it uses the recorded 20/21/40 book quantities.',NOTICE] };
 }
 module.exports = { estimate, save, NOTICE };

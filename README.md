@@ -4,22 +4,24 @@
 
 Sistem manajemen logistik SCMU berbasis React, Express, Prisma, dan PostgreSQL.
 
+Panduan kapal/voyage, unggah B/L dengan pembacaan lokal, dan rekap Packing List internal: [panduan operasional](docs/VESSELS-BL-IMPORT.md).
+
 Antarmuka mendukung **Bahasa Indonesia dan English**. Gunakan pilihan **Bahasa / Language**
 di halaman login, sidebar, atau Pengaturan. Pilihan bahasa tersimpan di perangkat dan
 berlaku untuk formulir, status, grafik, ekspor CSV, dan cetak invoice. Bahasa bawaan: Indonesia.
 
 ## Demo lokal (Windows)
 
-Prasyarat: Node.js 18+ dan PostgreSQL 14+ dengan `pg_ctl`, `initdb`, dan `psql` di PATH.
+Prasyarat: Node.js 22.13+ pada seri 22 (atau Node.js 24+) dan PostgreSQL 14+ dengan `pg_ctl`, `initdb`, dan `psql` di PATH.
 Jalankan dari folder proyek:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-demo.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start-demo.ps1 -SkipSeed
 ```
 
 Jika PostgreSQL belum ada di PATH, tambahkan `-PostgresBin "C:\Program Files\PostgreSQL\14\bin"`.
 Script memasang dependensi jika diperlukan, membuat database terpisah di `.demo/postgres`
-pada port **55432**, menjalankan migrasi dan seed, membangun frontend, serta menjalankan
+pada port **55432**, menjalankan migrasi tanpa seed, membangun frontend, serta menjalankan
 kedua layanan di latar belakang. File `.env` yang sudah ada tetap digunakan untuk setup manual;
 script demo memasok konfigurasi proses sendiri. Database demo hanya menerima koneksi loopback.
 
@@ -28,17 +30,11 @@ script demo memasok konfigurasi proses sendiri. Database demo hanya menerima kon
 - Direktur (Super Admin): `admin@scmu.local` / `Admin@1234`
 - Admin operasional: `operasional@scmu.local` / `Ops@1234`
 
-Email `@scmu.local` adalah akun contoh lokal. Seed dapat dijalankan ulang tanpa menggandakan
-data atau mereset password akun yang sudah ada. Dataset baru memuat job JPT Surabaya–Merauke
-dengan 3 tahap darat–laut–darat, penawaran komersial, biaya vendor, dokumen wajib,
-invoice dan pembayaran parsial dalam rupiah. Seluruh contoh bawaan menggunakan rute Indonesia dan IDR.
-
-Alur demo internal JPT: Admin → penawaran jual → job order → tahapan angkutan →
-dokumen/POD → invoice → penerimaan pembayaran dan pelunasan vendor → tutup job.
-Sistem hanya dapat diakses Direktur (Super Admin) dan Admin. Admin menyiapkan pekerjaan dan pengajuan;
-direktur memutuskan persetujuan dokumen final, harga, biaya, vendor, pengeluaran dan penutupan job.
-Master/akun/portal pelanggan dihapus; transaksi dipertahankan atas nama SCMU.
-Panduan rinci tersedia di [docs/DEMO.md](docs/DEMO.md).
+Email `@scmu.local` adalah akun contoh lokal. Sistem hanya dapat diakses Super Admin dan Admin.
+Alur aktif berfokus pada satu Pengiriman terintegrasi, unggah dokumen, pencarian,
+ekspor Excel, arsip, riwayat perubahan, dan pengelolaan pengguna internal. Gunakan `-SkipSeed`
+agar data yang sudah ada tidak ditambah ulang. Audit lengkap tersedia di
+[docs/REGISTER-AUDIT.md](docs/REGISTER-AUDIT.md).
 
 Untuk menghentikan layanan tanpa menghapus data:
 
@@ -50,21 +46,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\stop-demo.ps1
 
 | Modul | Kemampuan |
 | --- | --- |
-| Penawaran komersial | Draf/revisi, harga jual/beli disetujui direktur sebelum dikirim, konfirmasi oleh Admin, cetak, konversi menjadi job |
-| Job order | Satu pekerjaan dengan beberapa tahap darat, laut, udara atau kereta |
-| Operasional | Tracking manual, surat jalan, nomor booking/BL/AWB, kontainer dan pengembalian kosong |
-| Biaya dan laba | Pengajuan biaya vendor, persetujuan nilai aktual, estimasi dan laba tertagih |
-| Dokumen/POD | Daftar wajib, unggah, verifikasi, akses internal |
-| Packing list | Job pengirim/penerima; satu kepala penerimaan untuk banyak packing list asal, hasil penerimaan per dokumen, total otomatis, finalisasi dan cetak/PDF |
-| Keuangan | Invoice per job, pajak berupa nilai input, pembayaran parsial, uang muka, piutang/utang dan umur tagihan |
-| Penanganan | Register gudang masuk/keluar, kepabeanan, klaim, asuransi |
-| Modul transportasi | RFQ vendor, armada, pengemudi, perusahaan dan rute |
-| Laporan | Dashboard, ketepatan waktu dari data aktual, laporan per mata uang, CSV dan cetak |
-| Pengguna | Super Admin untuk pengelolaan akun; Admin untuk operasional |
-| Persetujuan direktur | Setujui/kembalikan/tolak dengan riwayat keputusan; data berubah wajib diajukan ulang; pengeluaran diotorisasi sebelum realisasi pembayaran |
+| Dashboard register | Jumlah register, periode, kapal/voyage, dokumen belum tersedia, dan data terbaru |
+| Pengiriman | Satu form dan satu record untuk seluruh kolom buku kiri–kanan; pencarian, filter, sorting, pagination, edit, arsip dan riwayat |
+| Dokumen pengiriman | B/L, Packing List opsional, dokumen pendukung, pratinjau modal, unduhan berotorisasi dan histori lampiran |
+| Ekspor Excel | XLSX seluruh hasil filter atau seluruh register, tipe data terjaga dan tanpa duplikasi relasi |
+| Pengguna | Super Admin mengelola akun Super Admin/Admin; Admin mengelola register |
+| Bahasa | Antarmuka Bahasa Indonesia dan Inggris |
 
-Integrasi GPS, carrier, kepabeanan, bank dan pajak elektronik belum terhubung.
-Register operasional dan buku pembantu job tersedia untuk demo; bukan buku besar akuntansi.
+Nominal pada buku disimpan sebagai nilai netral dan tidak digunakan sebagai pendapatan, biaya,
+invoice, pembayaran, utang, piutang, laba, atau KPI keuangan sampai artinya dikonfirmasi SCMU.
 
 ---
 
@@ -80,7 +70,7 @@ scmu/
 ```
 
 **Tech Stack:**
-- **Backend**: Node.js 18, Express.js, Prisma ORM, PostgreSQL 15, Socket.io
+- **Backend**: Node.js 22.13+/24+, Express.js, Prisma ORM, PostgreSQL
 - **Frontend**: React 18, Vite, Tailwind CSS, React Router v6, Recharts
 - **Auth**: JWT + bcrypt
 - **Infra**: Docker, Docker Compose, Nginx (reverse proxy)
@@ -127,7 +117,7 @@ docker compose exec backend node prisma/seed.js
 ## 🛠️ Manual Setup (Development)
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 22.13+ pada seri 22, atau Node.js 24+
 - PostgreSQL 15+
 - npm or yarn
 
@@ -153,6 +143,10 @@ npm run dev
 ```
 
 Frontend runs on `http://localhost:5173`, backend on `http://localhost:5000`.
+
+Panduan [impor Excel mitra dan pembuatan Kepala Packing List SCMU](docs/PACKING-IMPORT.md) mencakup alur pratinjau, pemeriksaan manual, penggabungan B/L, serta unduh Excel/cetak PDF.
+
+Panduan [penghapusan lampiran pengiriman](docs/SHIPMENT-DOCUMENT-DELETION.md) menjelaskan penghapusan file salah unggah, dokumen bersama, riwayat, dan migrasi antrean pembersihan berkas.
 
 ## 🔐 Default Roles
 

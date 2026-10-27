@@ -1,4 +1,7 @@
 import { jptIndonesia, jptEnums } from './jpt.mjs';
+import {registerEnglish} from './registerEnglish.mjs';
+import {packingEnglish,packingIndonesia} from './packingImport.mjs';
+import {workspaceEnglish,workspaceIndonesia} from './workspace.mjs';
 export const LANGUAGE_STORAGE_KEY = 'scmu_language';
 export const DEFAULT_LANGUAGE = 'id';
 export const LANGUAGES = Object.freeze({ id: 'Bahasa Indonesia', en: 'English' });
@@ -363,8 +366,12 @@ export function translate(language, key, values = {}) {
   if (typeof key !== 'string') return key;
   const selected = isLanguage(language) ? language : DEFAULT_LANGUAGE;
   const enumKey = key.replaceAll(' ', '_');
+  if(selected==='id'&&Object.hasOwn(packingIndonesia,key))return packingIndonesia[key];
+  if(selected==='id'&&Object.hasOwn(workspaceIndonesia,key))return workspaceIndonesia[key];
+  if(selected==='en'&&Object.hasOwn(packingEnglish,key))return packingEnglish[key];
+  if(selected==='en'&&Object.hasOwn(workspaceEnglish,key))return workspaceEnglish[key];
   let text = Object.hasOwn(enums, enumKey)
     ? enums[enumKey][selected === 'id' ? 1 : 0]
-    : selected === 'id' && Object.hasOwn(indonesia, key) ? indonesia[key] : key;
+    : selected === 'id' && Object.hasOwn(indonesia, key) ? indonesia[key] : selected==='en'&&Object.hasOwn(registerEnglish,key)?registerEnglish[key]:key;
   return text.replace(/\{(\w+)\}/g, (match, name) => Object.hasOwn(values, name) ? String(values[name]) : match);
 }

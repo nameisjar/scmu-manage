@@ -1,0 +1,32 @@
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs/promises');const os=require('node:os');const path=require('node:path');
+const {parse,dateOf}=require('../src/services/blParser');const vessels=require('../src/services/vessels');const recap=require('../src/services/packingRecap');
+test('SPIL spatial parser separates parties and adjacent fields, preserves zeroes and does not invent ETA',()=>{
+ const row=(y,values)=>({y,items:values.map(([x,text])=>({x,text,width:40}))});
+ const page={number:1,method:'PDF_TEXT',width:600,rows:[row(780,[[480,'No. B/L'],[525,'00012345X']]),row(760,[[12,'Pengirim']]),row(740,[[19,'PERUSAHAAN A, PT'],[350,'SYARAT PENGANGKUTAN']]),row(720,[[12,'Penerima']]),row(700,[[19,'SCMU'],[350,'PT. SALAM PACIFIC INDONESIA LINES']]),row(680,[[12,'Pihak yang Memberitahu']]),row(660,[[12,'Kapal Laut'],[107,'No. Pelayaran'],[241,'Pelabuhan Muat']]),row(640,[[19,'KM.'],[32,'UJI'],[114,'04/2026'],[212,'SURABAYA, INDONESIA']]),row(620,[[12,'Pelabuhan Bongkar'],[155,'Tempat Pengiriman'],[436,'Tujuan akhir']]),row(600,[[19,'MERAUKE, INDONESIA'],[162,'-'],[500,'-']]),row(580,[[43,'No. Kontainer/ No. Segel'],[489,'Berat Kotor']]),row(560,[[499,'KGS']]),row(540,[[16,'SPNU1234567 / 00124567'],[157,'40 HC'],[204,'1 Unit Cnt - BARANG'],[510,'21,400']]),row(100,[[12,'Tanggal Dimuat di atas kapal 05-04-2026']]) ]};
+ page.text=page.rows.map(r=>r.items.map(i=>i.text).join(' ')).join('\n');const result=parse({pages:[page]});
+ assert.equal(result.fields.billNumber,'00012345X');assert.equal(result.fields.shipperName,'PERUSAHAAN A, PT');assert.equal(result.fields.consigneeName,'SCMU');assert.equal(result.fields.notifyPartyName,undefined);
+ assert.equal(result.fields.portOfDischarge,'MERAUKE');assert.equal(result.fields.portOfLoading,'SURABAYA');assert.equal(result.fields.vesselName,'KM. UJI');assert.equal(result.fields.voyageNumber,'04/2026');
+ assert.deepEqual(result.fields.containers,[{number:'SPNU1234567',seal:'00124567',size:'40'}]);assert.equal(result.fields.grossWeightKg,'21400.000');assert.equal(result.fields.packages,undefined);assert.equal(result.fields.arrivalDate,undefined);assert.equal(result.fields.onBoardDate,'2026-04-05T00:00:00.000Z');
+});
+test('OCR is review-required, rejects partial dates and does not truncate malformed container digits',()=>{
+ const result=parse({pages:[{number:1,method:'LOCAL_OCR',rows:[],text:'No. B/L: 00001X\nVessel: KM UJI\nSPNU12345678 / 555555\nSPNU 123 456 7 / 0000001 20 DC'}]});
+ assert.equal(result.fields.billNumber,'00001X');assert.equal(result.evidence.billNumber.reviewRequired,true);assert.equal(result.fields.containers.length,1);assert.equal(result.fields.containers[0].seal,'0000001');assert.equal(dateOf('2/4'),null);assert.equal(dateOf('31-02-2026'),null);
+});
+test('master aliases match normalized names; selected voyage cannot belong to another vessel',async()=>{
+ assert.equal(vessels.vesselKey('KM. SPIL Hasya'),'SPILHASYA');assert.equal(vessels.voyageKey('V.04/26'),'0426');
+ const tx={vessel:{findUnique:async()=>({id:'ship',normalizedName:'HASYA',isActive:true,aliases:[]})},voyage:{findUnique:async()=>({vesselId:'other',isActive:true,normalizedNumber:'0426'})}};
+ await assert.rejects(vessels.links(tx,{vesselId:'ship',voyageId:'voyage',vesselName:'KM HASYA',voyageNumber:'04/26'}),/tidak sesuai/);
+});
+const item=(packages,volume)=>({description:'Barang contoh',packages,volumeCbm:volume,sourceSheet:'PL',sourceRow:12});
+function bill(id='b'){return {id,version:3,billNumber:'BL-'+id,vesselId:'ship',voyageId:'voyage-2026',vesselName:'KM Uji',voyageNumber:'04',contentVersion:1,containers:[{number:'CONT1',seal:'001'}],files:[{id:'source',category:'PACKING_LIST'}],registerData:{operational:{packing:{status:'CONFIRMED',sourceFileIds:['source'],groups:[{containerNumber:'CONT1',sealNumber:'001',sourceFileId:'source',recipientName:'TOKO A',items:[item(4,'0.1000'),item(2,null)]},{containerNumber:'CONT1',sealNumber:'001',sourceFileId:'source',recipientName:'TOKO A',items:[item(3,'0.2000')]}]}}}};}
+test('internal recap aggregates detail exactly once and keeps unknown CBM blank',async()=>{
+ const source=bill();const data=recap.summarize([source],'RPL-UJI');assert.equal(data.rows.length,1);assert.equal(data.rows[0].packages,9);assert.equal(data.rows[0].itemCount,3);assert.equal(data.totals.volumeCbm,null);assert.equal(data.details.length,3);
+ const book=await recap.workbook(data);const roundtrip=new (require('exceljs').Workbook)();await roundtrip.xlsx.load(await book.xlsx.writeBuffer());assert.equal(roundtrip.getWorksheet('Rekap internal').getCell('G5').value,9);assert.equal(roundtrip.getWorksheet('Rekap internal').getCell('H5').value,null);
+ source.files.push({filename:'recap.xlsx',category:recap.CATEGORY});source.registerData.internalRecap={filename:'recap.xlsx',valid:true,fingerprint:recap.fingerprint(source)};assert.equal(recap.ready(source),true);source.registerData.operational.packing.groups[0].items[0].packages=99;assert.equal(recap.ready(source),false);
+});
+test('recap rejects draft source and same voyage number from different years',()=>{
+ const source=bill();source.registerData.operational.packing.status='DRAFT';assert.throws(()=>recap.summarize([source],'R'),/konfirmasi/);const next=bill('b2');next.voyageId='voyage-2027';assert.throws(()=>recap.summarize([bill(),next],'R'),/periode voyage/);
+});
+test('bundled OCR reads a PNG locally and PDF worker rejects malformed input',async()=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'scmu-reader-'));try{const {createCanvas}=require('@napi-rs/canvas');const c=createCanvas(1400,600);const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,c.width,c.height);ctx.fillStyle='black';ctx.font='42px Arial';['BILL OF LADING','No. B/L: 00012345X','Vessel: KM SCMU TEST','SPNU1234567 / 00124567 40 HC'].forEach((s,i)=>ctx.fillText(s,45,80+i*90));const file=path.join(dir,'test.png');await fs.writeFile(file,c.toBuffer('image/png'));const result=await require('../src/services/blReader').read(file,'image/png');assert.equal(result.pages[0].method,'LOCAL_OCR');assert.match(result.pages[0].text,/00012345X/);const bad=path.join(dir,'bad.pdf');await fs.writeFile(bad,'%PDF-1.7\ninvalid');await assert.rejects(require('../src/services/blReader').read(bad,'application/pdf'));}finally{await fs.rm(dir,{recursive:true,force:true});}
+});

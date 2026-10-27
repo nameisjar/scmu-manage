@@ -30,7 +30,7 @@ export default function DocumentPreview({ endpoint, localFile, name, mimeType })
       <div className="overflow-hidden rounded-lg border border-zinc-700 bg-white">
         {preview.type === 'application/pdf'
           ? <iframe src={preview.url} title={`${t('Document preview')}: ${name}`} tabIndex={0} onLoad={()=>setPreview(value=>({...value,ready:true}))} className="h-[440px] w-full sm:h-[540px]" />
-          : preview.type?.startsWith('image/')
+          : ['image/png','image/jpeg','image/webp','image/gif','image/bmp'].includes(preview.type)
             ? <img src={preview.url} alt={`${t('Document preview')}: ${name}`} onLoad={()=>setPreview(value=>({...value,ready:true}))} className="mx-auto max-h-[540px] w-full object-contain" />
             : <p className="p-5 text-sm text-zinc-600">{t('Download the file to view this document.')}</p>}
       </div>

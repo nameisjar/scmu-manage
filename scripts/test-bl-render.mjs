@@ -17,7 +17,7 @@ try {
  }
  const detail = await server.ssrLoadModule('/src/pages/BL/BLDetail.jsx').catch(() => ({}));
  assert.equal(typeof detail.RegisterForm,'function','Register form must exist');
- for(const [language,copy] of [['en',['B/L number','Customer name','Billing party','Book date out','UNCONFIRMED','Add container','Save B/L']],['id',['Nomor B/L','Nama pelanggan','Pihak tagihan','Tanggal keluar buku','Tambah kontainer','Simpan B/L']]]) {
+ for(const [language,copy] of [['en',['B/L number','Customer name','Billing party','Book date out','UNCONFIRMED','Add container','Save B/L']],['id',['Nomor B/L','Nama pelanggan','Pihak tagihan','Tanggal keluar','Tambah kontainer','Simpan B/L']]]) {
   const html=render(React.createElement(detail.RegisterForm),language); for(const text of copy) assert.ok(html.includes(text),`Form ${language}: missing ${text}`);
   assert.ok(!html.includes('customerId')); assert.ok(!html.includes('quotationId'));
  }
