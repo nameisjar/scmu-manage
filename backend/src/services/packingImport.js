@@ -57,13 +57,14 @@ function numeric(value, scale = 4) {
 }
 const total = (items, key) => items.reduce((n, item) => n.plus(item[key] || 0), new Prisma.Decimal(0)).toString();
 
-async function parseWorkbook(buffer) {
+async function parseWorkbook(buffer,{summaryOnly=false}={}) {
   fail(Buffer.isBuffer(buffer) && buffer.length >= 22, 'Invalid XLSX file', 415);
   validateArchive(buffer);
   const book = new ExcelJS.Workbook();
   try { await book.xlsx.load(buffer); } catch { fail(false, 'Workbook cannot be read; use an unencrypted XLSX file', 415); }
   fail(book.worksheets.length <= 60, 'Import up to 60 worksheets at a time');
-  const warnings = new Set(); const groups = []; const containers = new Map(); const headings = [];
+  const warnings = new Set(); const groups = []; const containers = new Map(); const headings = []; const sourceHeader={};
+  const headerLabels={partnerName:/^(?:MITRA|NAMA PERUSAHAAN)(?=\s*:|\s*$)\s*:?\s*/i,vesselName:/^(?:KAPAL|NAMA KAPAL)(?=\s*:|\s*$)\s*:?\s*/i,voyageNumber:/^(?:VOY(?:AGE)?|NO\.? PELAYARAN)(?=\s*:|\s*$)\s*:?\s*/i,billNumber:/^(?:NO\.?\s*B\/?L|NOMOR\s+B\/?L)(?=\s*:|\s*$)\s*:?\s*/i,departureDate:/^(?:BERANGKAT|TGL\.? BERANGKAT|ETD)(?=\s*:|\s*$)\s*:?\s*/i,arrivalDate:/^(?:TIBA|TGL\.? TIBA|ETA)(?=\s*:|\s*$)\s*:?\s*/i,storageDate:/^(?:TGL\.? STORAGE|STORAGE)(?=\s*:|\s*$)\s*:?\s*/i,demurrageDate:/^(?:TGL\.? DEM[OU]R+AGE|DEM[OU]R+AGE)(?=\s*:|\s*$)\s*:?\s*/i};
   let visited = 0;
   for (const sheet of book.worksheets) {
     fail(sheet.rowCount <= 10000 && sheet.columnCount <= 100, 'Worksheet exceeds import limits');
@@ -71,9 +72,14 @@ async function parseWorkbook(buffer) {
     for (let r = 1; r <= sheet.rowCount; r++) {
       const location = `${sheet.name}!${r}`; const row = sheet.getRow(r);
       visited += row.cellCount; fail(visited <= 200000, 'Workbook exceeds cell import limit');
-      const values = Array.from({ length: Math.min(sheet.columnCount, 100) }, (_, i) => valueOf(row.getCell(i + 1), warnings, location));
+      const values = Array.from({ length: Math.min(sheet.columnCount, 100) }, (_, i) => {const cell=row.getCell(i+1);return summaryOnly&&cell.isMerged&&cell.master.address!==cell.address?null:valueOf(cell,warnings,location);});
       const labels = values.map(v => String(v ?? '').trim()); const line = labels.join(' ').replace(/\s+/g, ' ').trim();
       if (!line) continue;
+      if(!currentContainer&&!group)for(const [key,regex]of Object.entries(headerLabels))for(let c=0;c<labels.length;c++)if(regex.test(labels[c])){
+        const tail=labels[c].replace(regex,'').trim();let value=tail;
+        if(!value)for(let next=c+1;next<Math.min(c+4,labels.length);next++){if(!labels[next]||labels[next]===':')continue;if(Object.values(headerLabels).some(r=>r.test(labels[next])))break;value=labels[next].replace(/^:\s*/,'');break;}
+        if(value&&value.length<=200&&!Object.values(headerLabels).some(r=>r.test(value))){if(sourceHeader[key]&&sourceHeader[key]!==value)warnings.add(`Source header ${key} differs; review the original document`);else sourceHeader[key]=value;}
+      }
       if (/\bKM[.\s]/i.test(line) && /\bV(?:OY)?[.\s/\d]/i.test(line) && headings.length < 20 && !headings.includes(line)) headings.push(line.slice(0, 1000));
       const container = line.match(/\b([A-Z]{4})\s*([\d.\s-]{7,18})\s*\/\s*SEAL\s*[:.]?\s*([A-Z0-9-]+)/i);
       if (container) {
@@ -108,8 +114,8 @@ async function parseWorkbook(buffer) {
         continue;
       }
       const description = labels[columns.description]; const count = numeric(values[columns.packages], null);
-      if (!description || count == null) continue;
-      if (!Number.isInteger(Number(count))) { warnings.add(`${location}: non-integer COLY; row needs manual transcription`); continue; }
+      if (!description || count == null) { if(summaryOnly&&description)group.items.push({description:description.slice(0,500),packages:null});continue; }
+      if (!Number.isInteger(Number(count))) { warnings.add(`${location}: non-integer COLY; row needs manual transcription`);if(summaryOnly)group.items.push({description:description.slice(0,500),packages:null});continue; }
       const rawDate = columns.itemDate >= 0 ? labels[columns.itemDate] : '';
       const fullDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
       if (rawDate && !fullDate) warnings.add('Partial dates are kept as source text; year is not inferred');
@@ -122,17 +128,17 @@ async function parseWorkbook(buffer) {
         volumeCbm: null, sourceVolume: rawVolume, marks: null });
     }
   }
-  const populated = groups.filter(group => group.items.length);
+  const populated = groups.filter(group => group.items.length||summaryOnly&&group.recipientName);
   if (!populated.length) throw Object.assign(new Error('No supported Packing List item rows found. Keep the original document and transcribe it manually.'), { status: 422, code: 'PACKING_LAYOUT_UNSUPPORTED' });
   fail(populated.length <= 200 && populated.every(g => g.items.length <= 500), 'Packing List exceeds group or item limits');
   warnings.add('M3/TN values are not treated as CBM until the admin confirms the unit');
-  return { parser: 'BILBA_COLUMNS_V1', hash: createHash('sha256').update(buffer).digest('hex'), headings,
+  return { parser: 'BILBA_COLUMNS_V1', hash: createHash('sha256').update(buffer).digest('hex'), headings,sourceHeader,
     containers: [...containers.values()], groups: populated, warnings: [...warnings],
     totals: { containers: new Set(populated.map(g => g.containerNumber)).size, groups: populated.length, items: populated.reduce((n, g) => n + g.items.length, 0), packages: Number(total(populated.flatMap(g => g.items), 'packages')) } };
 }
 
-async function readOriginal(buffer) {
-  try { return await parseWorkbook(buffer); }
+async function readOriginal(buffer,options) {
+  try { return await parseWorkbook(buffer,options); }
   catch (error) {
     // Only a successfully validated/read XLSX with an unknown layout may be retained.
     if (error.code !== 'PACKING_LAYOUT_UNSUPPORTED') throw error;
@@ -149,18 +155,10 @@ async function ownedPreview(tx, id, fileId) {
   const parsed = await readOriginal(await fs.readFile(files.filePath(file.filename)));
   return { bill, file, parsed };
 }
-function matching(parsed, bill) {
-  const registered = new Map((bill.containers || []).map(row => [canonical(row.number), row]));
-  return parsed.groups.map(group => {
-    const found = registered.get(group.containerNumber);
-    return { ...group, registered: Boolean(found), sealMatches: Boolean(found && canonical(found.seal) === canonical(group.sealNumber)), targetContainer: found?.number || null };
-  });
-}
 async function preview(tx, id, fileId) {
   const { bill, file, parsed } = await ownedPreview(tx, id, fileId);
-  const candidates = await tx.seaBill.findMany({ where: { archivedAt: null }, select: { id: true, billNumber: true, vesselName: true, voyageNumber: true, containers: true }, take: 1000 });
   return { ...parsed, fileId: file.id, filename: file.originalName, version: bill.version, billNumber: bill.billNumber,
-    groups: matching(parsed, bill), candidates: candidates.filter(row => row.id !== id && row.containers?.some(c => parsed.containers.some(p => canonical(c.number) === p.number))).map(({ containers, ...row }) => row),
+    groups: parsed.groups,
     alreadyImported: (bill.registerData?.packingImports || []).some(row => row.hash === parsed.hash) };
 }
 async function apply(tx, user, id, body) {
@@ -170,20 +168,18 @@ async function apply(tx, user, id, body) {
   fail(body.hash === parsed.hash, 'Source workbook changed; preview it again', 409);
   fail(!(bill.registerData?.packingImports || []).some(row => row.hash === parsed.hash), 'This workbook has already been imported into this B/L', 409);
   fail(Array.isArray(body.groupIds) && body.groupIds.length && new Set(body.groupIds).size === body.groupIds.length, 'Select recipient groups to import');
-  const selected = matching(parsed, bill).filter(g => body.groupIds.includes(g.id));
+  const selected = parsed.groups.filter(g => body.groupIds.includes(g.id));
   fail(selected.length === body.groupIds.length, 'Invalid import group selection');
   fail(['UNCONFIRMED', 'CBM'].includes(body.volumeUnit), 'Confirm the volume column unit');
-  const missing = selected.filter(g => !g.registered);
-  fail(!missing.length, 'Register the selected containers on this B/L first; source data must not silently change the B/L');
   const previous = workspace.operationalOf(bill);
   await require('./packingRecap').invalidateShared(tx,user,bill);
-  const imported = selected.map(g => ({ ...g, id: randomUUID(), containerNumber: g.targetContainer, sourceFileId: file.id,
+  const imported = selected.map(g => ({ ...g, id: randomUUID(), containerNumber: g.containerNumber, sourceFileId: file.id,
     notes: g.notes||null, items: g.items.map(item => ({ ...item, id: randomUUID(), volumeCbm: body.volumeUnit === 'CBM' ? item.sourceVolume : null })) }));
-  const operational = workspace.normalizeOperational({ ...previous, packing: { ...previous.packing, status: 'DRAFT', headerStatus: 'DRAFT',
+  const operational = workspace.normalizeOperational({ ...previous, packing: { ...previous.packing, status: 'DRAFT', headerStatus: 'DRAFT',sourceHeading:parsed.headings.join(' | ').slice(0,2000)||previous.packing.sourceHeading,
     sourceFileIds: [...new Set([...previous.packing.sourceFileIds, file.id])], groups: [...previous.packing.groups, ...imported] } }, bill);
   const imports = [...(bill.registerData?.packingImports || []), { hash: parsed.hash, sourceFileId: file.id, parser: parsed.parser, groupIds: body.groupIds, volumeUnit: body.volumeUnit, importedAt: new Date().toISOString(), importedById: user.id }];
-  await tx.seaBill.update({ where: { id }, data: { registerData: { ...bill.registerData, operational, packingImports: imports }, version: { increment: 1 } } });
+  await tx.seaBill.update({ where: { id }, data: { registerData: { ...bill.registerData, workflowVersion:2, operational, packingImports: imports }, version: { increment: 1 } } });
   await audit(tx, user, 'PACKING_EXCEL_IMPORTED', 'JobOrder', bill.jobId, { seaBillId: id, sourceFileId: file.id, hash: parsed.hash, groupIds: body.groupIds, volumeUnit: body.volumeUnit });
-  return { version: bill.version + 1, operational, reconciliation: workspace.reconciliation(bill, operational) };
+  return { version: bill.version + 1, operational };
 }
-module.exports = { MIME, canonical, validateArchive, parseWorkbook, readOriginal, preview, apply, matching };
+module.exports = { MIME, canonical, validateArchive, parseWorkbook, readOriginal, preview, apply };

@@ -11,13 +11,12 @@ export default function BillingTax(){
  return <div className="space-y-5"><PageHeader title={t('Tagihan & Pajak')} subtitle={t('Rekap tagihan per B/L. PPh 23 hanya dihitung saat ditandai berlaku; verifikasi dasar pajak dan bukti potong tetap wajib.')}/>
   <div className="grid sm:grid-cols-3 gap-3">{[['Total halaman',totals.gross],['PPh 23 halaman ini',totals.pph],['Bersih dibayar',totals.net]].map(([label,value])=><div className="card p-4" key={label}><p className="text-xs text-zinc-400">{t(label)}</p><p className="mt-2 text-xl tabular-nums">{formatRegisterAmount(value.toFixed(2))}</p></div>)}</div>
   <input className="input-field max-w-xl" type="search" aria-label={t('Cari B/L atau pelayaran')} placeholder={t('Cari B/L atau pelayaran')} value={search} onChange={event=>setQuery({search:event.target.value,page:null})}/>
-  <Notice message={resource.error}/><DataTable rows={rows} pagination={resource.pagination} empty={t('Belum ada data tagihan.')} columns={[
-   {key:'billNumber',label:t('Nomor B/L'),render:row=><Link className="font-mono text-brand-400" to={`/bl-register/${row.id}`}>{row.billNumber}</Link>},
-   {key:'vendorName',label:t('Vendor/JPT')},{key:'invoiceNumber',label:t('Nomor invoice')},{key:'invoiceDate',label:t('Tanggal invoice'),render:row=>row.invoiceDate?.slice(0,10)||'—'},{key:'dueDate',label:t('Jatuh tempo'),render:row=>row.dueDate?.slice(0,10)||'—'},
-   {key:'grossAmount',label:t('Jumlah tagihan'),align:'right',render:row=>formatRegisterAmount(row.grossAmount)},
-   {key:'pph23Amount',label:t('PPh 23'),align:'right',render:row=>row.pph23Applicable?formatRegisterAmount(row.pph23Amount):t('Tidak berlaku')},
-   {key:'netPayable',label:t('Bersih dibayar'),align:'right',render:row=>formatRegisterAmount(row.netPayable)},
-   {key:'billingStatus',label:t('Status'),render:row=>t(row.billingStatus)},
-   {key:'documents',label:t('Dokumen pajak'),render:row=><span className="text-xs">Invoice {row.hasInvoice?'✓':'—'} · Faktur {row.hasTaxInvoice?'✓':'—'} · Bukti PPh {row.hasPphCertificate?'✓':'—'}</span>},
+  <Notice message={resource.error}/><DataTable mobileCards rows={rows} pagination={resource.pagination} empty={t('Belum ada data tagihan.')} columns={[
+   {key:'billNumber',label:t('B/L & Mitra'),primary:true,width:'24%',render:row=><><Link className="font-semibold text-brand-400" to={`/bl-register/${row.id}`}>{row.billNumber}</Link><p className="table-subtext">{row.vendorName||'—'}</p></>},
+   {key:'invoiceNumber',label:t('Invoice'),width:'16%',render:row=><>{row.invoiceNumber||'—'}<p className="table-subtext">{row.invoiceDate?.slice(0,10)||'—'}</p></>},
+   {key:'dueDate',label:t('Jatuh tempo'),width:'13%',render:row=><>{row.dueDate?.slice(0,10)||'—'}<p className="table-subtext">{t(({NOT_RECEIVED:'Belum diterima',RECEIVED:'Diterima',CHECKED:'Diperiksa',PAID:'Lunas',PARTIALLY_PAID:'Dibayar sebagian'})[row.billingStatus]||row.billingStatus)}</p></>},
+   {key:'grossAmount',label:t('Jumlah tagihan'),align:'right',width:'18%',render:row=><>{formatRegisterAmount(row.grossAmount)}<p className="table-subtext">{t('PPh 23')}: {row.pph23Applicable?formatRegisterAmount(row.pph23Amount):t('Tidak berlaku')}</p></>},
+   {key:'netPayable',label:t('Bersih dibayar'),align:'right',width:'18%',render:row=>formatRegisterAmount(row.netPayable)},
+   {key:'documents',label:t('Dokumen pajak'),width:'11%',render:row=><Link to={`/bl-register/${row.id}?tab=documents`} className="text-brand-400"><span className="table-pill">{[row.hasInvoice,row.hasTaxInvoice,row.hasPphCertificate].filter(Boolean).length} {t('tersedia')}</span><p className="table-subtext">{t('Lihat dokumen')}</p></Link>},
   ]}/></div>;
 }

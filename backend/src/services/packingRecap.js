@@ -1,8 +1,8 @@
 const {createHash,randomUUID}=require('node:crypto');const {Prisma}=require('@prisma/client');const ExcelJS=require('exceljs');
 const {fail,text,audit}=require('./jpt');const workspace=require('./blWorkspace');
 const CATEGORY='INTERNAL_PACKING_RECAP';
-function fingerprint(bill){const p=workspace.operationalOf(bill).packing;return createHash('sha256').update(JSON.stringify([bill.billNumber,bill.vesselId,bill.voyageId,bill.vesselName,bill.voyageNumber,bill.contentVersion,bill.shipperName,bill.consigneeName,bill.containers,bill.registerData?.containers,p.status,p.sourceFileIds,p.groups])).digest('hex');}
-function ready(bill){const saved=bill.registerData?.internalRecap;return Boolean(saved?.valid&&saved.fingerprint===fingerprint(bill)&&bill.files?.some(f=>f.category===CATEGORY&&f.filename===saved.filename));}
+function fingerprint(bill){const type=require('./packingSources').preferredType(bill);return require('./internalPacking').fingerprint(bill,require('./internalPacking').sourceSnapshot(bill,type));}
+function ready(bill){const saved=bill.registerData?.internalRecap;try{return Boolean(saved?.valid&&saved.fingerprint===fingerprint(bill)&&bill.files?.some(f=>f.category===CATEGORY&&f.filename===saved.filename));}catch{return false;}}
 async function invalidateShared(tx,user,bill){
  const filename=bill.registerData?.internalRecap?.filename;if(!filename||!bill.registerData.internalRecap.valid)return;
  const shared=await tx.seaBillFile.findMany({where:{category:CATEGORY,filename,billId:{not:bill.id}},select:{billId:true}});
@@ -18,20 +18,17 @@ function summarize(bills,number){
  if(bills.length>1)fail(first.voyageId&&bills.every(b=>b.voyageId===first.voyageId&&b.vesselId===first.vesselId),'Untuk rekap beberapa B/L, tautkan semuanya ke master kapal dan periode voyage yang sama.');
  const rows=[];const details=[];const warnings=[];
  for(const bill of bills){
-  const packing=workspace.operationalOf(bill).packing;
+
+  const normalized=require('./internalPacking').sourceSnapshot(bill,require('./packingSources').preferredType(bill));
+  const packing=normalized?{...normalized,status:'CONFIRMED',sourceFileIds:normalized.sources.map(f=>f.id)}:workspace.operationalOf(bill).packing;
   fail(packing.status==='CONFIRMED'&&packing.groups.length,`${bill.billNumber}: Periksa dan konfirmasi transkripsi Packing List sebelum membuat rekap.`,409);
   fail(packing.groups.every(g=>g.dataLevel!=='SUMMARY'),`${bill.billNumber}: Data ringkasan belum mempunyai rincian barang. Gunakan Kelola Packing List → Ringkasan kontainer.`,409);
-  fail(packing.sourceFileIds.length&&packing.sourceFileIds.every(id=>bill.files.some(f=>f.id===id&&['PACKING_LIST','INTERNAL_PACKING_LIST'].includes(f.category))),`${bill.billNumber}: Sumber Packing List tidak tersedia.`,409);
-  const comparison=workspace.reconciliation(bill,workspace.operationalOf(bill));
-  if(comparison.missingContainers.length)warnings.push(`${bill.billNumber}: Kontainer belum tercakup dalam transkripsi: ${comparison.missingContainers.join(', ')}.`);
-  if(comparison.issues.includes('PACKAGE_TOTAL_DIFFERENCE'))warnings.push(`${bill.billNumber}: Total koli transkripsi berbeda dari B/L; periksa sumber sebelum menggunakan rekap.`);
-  if(comparison.issues.includes('VOLUME_TOTAL_DIFFERENCE'))warnings.push(`${bill.billNumber}: Total CBM transkripsi berbeda dari B/L.`);
+  fail((normalized?.sourceType==='MANUAL'||packing.sourceFileIds.length)&&packing.sourceFileIds.every(id=>bill.files.some(f=>f.id===id&&['PACKING_LIST','INTERNAL_PACKING_LIST','RECEIVING_REPORT','SUPPORTING'].includes(f.category))),`${bill.billNumber}: Sumber Packing List tidak tersedia.`,409);
   const map=new Map();
   for(const group of packing.groups){
-   fail(group.sourceFileId&&packing.sourceFileIds.includes(group.sourceFileId),`${bill.billNumber}: Pilih sumber untuk setiap kelompok penerima.`);
-   const container=bill.containers.find(c=>c.number===group.containerNumber);fail(container,`${bill.billNumber}: Kontainer sumber tidak sesuai B/L.`);
-   fail(!group.sealNumber||!container.seal||group.sealNumber===container.seal,`${group.containerNumber}: Nomor segel berbeda dari B/L.`);
-   const key=JSON.stringify([group.containerNumber,group.recipientName?.trim().toLocaleUpperCase('id-ID'),group.recipientAddress||'',group.recipientPhone||'']);
+   fail(normalized?.sourceType==='MANUAL'||group.sourceFileId&&packing.sourceFileIds.includes(group.sourceFileId),`${bill.billNumber}: Pilih sumber untuk setiap kelompok penerima.`);
+   const container={number:group.containerNumber,seal:group.sealNumber};
+   const key=JSON.stringify([group.containerNumber,group.sealNumber,group.recipientName?.trim().toLocaleUpperCase('id-ID'),group.recipientAddress||'',group.recipientPhone||'']);
    let row=map.get(key);if(!row){row={id:bill.id+':'+map.size,billNumber:bill.billNumber,containerNumber:group.containerNumber,seal:container.seal,recipientName:group.recipientName,address:group.recipientAddress,phone:group.recipientPhone,packages:0,volumeCbm:'0.0000',volumeComplete:true,itemCount:0,notes:[],sources:[]};map.set(key,row);}
    if(group.notes&&!row.notes.includes(group.notes))row.notes.push(group.notes);
    for(const item of group.items){row.itemCount++;row.packages+=item.packages;row.volumeComplete&&=item.volumeCbm!=null&&item.volumeCbm!=='';if(item.volumeCbm!=null)row.volumeCbm=new Prisma.Decimal(row.volumeCbm).plus(item.volumeCbm).toFixed(4);
@@ -68,7 +65,8 @@ async function workbook(data){
 async function save(tx,user,body,filename,size,expected){
  fail(body.confirmed===true,'Konfirmasi rekap terlebih dahulu.');const {bills,data}=await read(tx,body.selection,expected.recapNumber);
  fail(JSON.stringify(data.records)===JSON.stringify(expected.records),'B/L berubah. Buat pratinjau rekap ulang.',409);
- for(const bill of bills){await tx.seaBillFile.create({data:{billId:bill.id,category:CATEGORY,contentVersion:bill.contentVersion,filename,originalName:expected.recapNumber.replace(/[^a-zA-Z0-9_-]/g,'_')+'.xlsx',mimeType:require('./packingImport').MIME,size,uploadedById:user.id,note:'Rekap internal SCMU per kontainer dan penerima; '+expected.recapNumber}});
+ for(const bill of bills){
+  await tx.seaBillFile.create({data:{billId:bill.id,category:CATEGORY,contentVersion:bill.contentVersion,filename,originalName:expected.recapNumber.replace(/[^a-zA-Z0-9_-]/g,'_')+'.xlsx',mimeType:require('./packingImport').MIME,size,uploadedById:user.id,note:'Rekap internal SCMU per kontainer dan penerima; '+expected.recapNumber}});
   await tx.seaBill.update({where:{id:bill.id},data:{registerData:{...bill.registerData,internalRecap:{filename,number:expected.recapNumber,fingerprint:fingerprint(bill),valid:true}},version:{increment:1}}});
   await audit(tx,user,'PACKING_RECAP_CREATED','JobOrder',bill.jobId,{seaBillId:bill.id,snapshot:expected});}
 }

@@ -58,12 +58,10 @@ test('rejects arbitrary ZIPs, unknown layouts, macros and expansion bombs before
   macro.write('vbaProject.bin!', name);
   assert.throws(() => importer.validateArchive(macro), /Macros/);
 });
-test('matching requires an existing B/L container and reports a different seal', async () => {
-  const parsed = await importer.parseWorkbook(await sample());
-  const groups = importer.matching(parsed, { containers: [{ number: 'SPNU 294.226-5', seal: 'OTHER' }] });
-  assert(groups.every(g => g.registered && !g.sealMatches && g.targetContainer === 'SPNU 294.226-5'));
-  assert(importer.matching(parsed, { containers: [] }).every(g => !g.registered));
+test('import source identity remains independent of BL containers', async () => {
+ const parsed=await importer.parseWorkbook(await sample());assert.equal(parsed.groups[0].containerNumber,'SPNU2942265');assert.equal(parsed.groups[0].sealNumber,'57100563');assert.equal(parsed.groups[0].registered,undefined);assert.equal(importer.matching,undefined);
 });
+
 test('valid unknown templates remain available for manual transcription, but invalid files are rejected', async () => {
   const book = new ExcelJS.Workbook(); book.addWorksheet('Other').addRow(['Partner custom template']);
   const result = await importer.readOriginal(Buffer.from(await book.xlsx.writeBuffer()));
@@ -80,9 +78,7 @@ test('normalization preserves unknown dimensions, zero values and partial-date p
   assert.equal(output.packing.groups[0].items[0].itemDateText, '07/09');
   assert.equal(output.packing.groups[1].items[0].lengthCm, null);
   assert.equal(output.packing.groups[1].items[0].widthCm, '0.000');
-  const result = workspace.reconciliation(bill, output);
-  assert.equal(result.totals.volumeCbm, null); assert.equal(result.totals.packages, 505);
-  assert(result.issues.includes('VOLUME_UNIT_OR_VALUE_UNCONFIRMED'));
+  assert.equal(output.packing.groups[1].items[0].packages,205);assert.equal(output.reconciliation,undefined);
 });
 const bill = (id, container, extras = {}) => ({ id, version: 3, billNumber: `BL-${id}`, vesselName: 'KM CONTOH', voyageNumber: '03/26', containers: [{ number: container, seal: '123', size: '40', goodsDescription: 'Muatan contoh' }], registerData: { register: { includeInPackingHeader: true } }, ...extras });
 test('Packing Header groups several B/Ls in one voyage but rejects ambiguous duplicates and other voyages', () => {

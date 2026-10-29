@@ -17,12 +17,13 @@ const defaultOperational = () => ({
 
 function packingItem(row, sequence, confirmed = false) {
   fail(row && typeof row === 'object' && !Array.isArray(row), 'Packing item must be valid');
+  if (confirmed) fail(row.packages != null && row.packages !== '', 'Isi jumlah setiap barang. Nol harus dinyatakan secara eksplisit.');
   return {
     id: typeof row.id === 'string' && row.id ? row.id.slice(0, 100) : randomUUID(), sequence,
     itemDate: isoDate(row.itemDate), itemDateText: optionalText(row.itemDateText, 'Source date text', 100), shop: optionalText(row.shop, 'Shop', 200),
     sourceSheet: optionalText(row.sourceSheet, 'Source worksheet', 100), sourceRow: row.sourceRow == null ? null : integer(row.sourceRow, 'Source row', 1, 10000),
     description: confirmed ? text(row.description, 'Item description', 500) : optionalText(row.description, 'Item description', 500),
-    quantity: numeric(row.quantity ?? 0, 'Item quantity', 4), packages: integer(row.packages ?? 0, 'Item packages', 0, 1000000),
+    quantity: numeric(row.quantity ?? 0, 'Item quantity', 4), packages: row.packages == null || row.packages === '' ? null : integer(row.packages, 'Item packages', 0, 1000000),
     lengthCm: nullableNumeric(row.lengthCm, 'Length', 3), widthCm: nullableNumeric(row.widthCm, 'Width', 3), heightCm: nullableNumeric(row.heightCm, 'Height', 3),
     volumeCbm: nullableNumeric(row.volumeCbm, 'Volume', 4), sourceVolume: nullableNumeric(row.sourceVolume, 'Source volume', 4), marks: optionalText(row.marks, 'Marks', 300),
     ...(row.packageUnit!==undefined?{packageUnit:text(row.packageUnit,'Satuan kemasan',30).toUpperCase()}:{}),
@@ -31,11 +32,9 @@ function packingItem(row, sequence, confirmed = false) {
 
 function packingGroup(row, index, bill, sourceIds, confirmed = false) {
   fail(row && typeof row === 'object' && !Array.isArray(row), 'Packing group must be valid');
-  const containerNumber = text(row.containerNumber, 'Container number', 50).toUpperCase();
-  const registered = (bill.containers || []).find(item => item.number === containerNumber);
-  fail(registered, `Container ${containerNumber} is not registered on this B/L`);
+  const containerNumber = text(row.containerNumber, 'Container number', 50, true)?.toUpperCase()||null;
   const sourceFileId = optionalText(row.sourceFileId, 'Packing source', 100);
-  fail(!sourceFileId || sourceIds.includes(sourceFileId), 'Packing source must be an attached Packing List');
+  fail(!sourceFileId || sourceIds.includes(sourceFileId), 'Pilih berkas sumber yang terlampir pada B/L ini untuk penerima tersebut.');
   const items = Array.isArray(row.items) ? row.items.map((item,sequence)=>packingItem(item,sequence,confirmed)) : null;
   fail(items && items.length <= 500, 'Enter up to 500 packing items per recipient');
   return {
@@ -58,7 +57,7 @@ function normalizeOperational(input, bill) {
   const packingStatus = choice(input.packing?.status || 'DRAFT', ['DRAFT', 'CONFIRMED'], 'Packing transcription status');
   const groups = Array.isArray(input.packing?.groups) ? input.packing.groups.map((row, index) => packingGroup(row, index, bill, sourceIds, packingStatus === 'CONFIRMED')) : null;
   fail(groups && groups.length <= 200, 'Enter up to 200 Packing List recipient groups');
-  if (packingStatus === 'CONFIRMED') fail(sourceIds.length && groups.length, 'Attach and transcribe at least one Packing List before confirming');
+  if (packingStatus === 'CONFIRMED') fail(sourceIds.length && groups.length, 'Pilih minimal satu PL mitra dan terapkan hasil impor atau isi rincian penerima sebelum konfirmasi. Jika tanpa berkas, pilih Input manual.');
   const deadlines = {
     etaDate: isoDate(input.deadlines?.etaDate), storageUntil: isoDate(input.deadlines?.storageUntil),
     demurrageFrom: isoDate(input.deadlines?.demurrageFrom), emptyReturnDue: isoDate(input.deadlines?.emptyReturnDue),
@@ -78,36 +77,9 @@ function normalizeOperational(input, bill) {
   if (unloading.status === 'COMPLETED') fail(unloading.declaredPackages === unloading.actualPackages && unloading.damagedPackages === 0, 'Use discrepancy status when package totals differ or damage exists');
   if (unloading.status === 'DISCREPANCY') fail(unloading.notes, 'Explain the unloading discrepancy');
   return {
-    packing: { status: packingStatus, headerStatus: choice(input.packing?.headerStatus || 'DRAFT', ['DRAFT', 'READY'], 'Packing Header status'), headerNumber: optionalText(input.packing?.headerNumber, 'Packing Header number', 100), sourceFileIds: sourceIds, groups },
+    packing: { status: packingStatus, headerStatus: choice(input.packing?.headerStatus || 'DRAFT', ['DRAFT', 'READY'], 'Packing Header status'), headerNumber: optionalText(input.packing?.headerNumber, 'Packing Header number', 100), sourceFileIds: sourceIds, groups, ...(input.packing?.comparisonBasis?{comparisonBasis:require('./packingSources').basis(input.packing.comparisonBasis)}:{}),...(input.packing?.sourceIdentity?{sourceIdentity:require('./packingSources').sourceIdentity(input.packing.sourceIdentity)}:{}),...(input.packing?.sourceHeading?{sourceHeading:text(input.packing.sourceHeading,'Judul sumber',2000,true)}:{}) },
     deadlines, unloading,
   };
-}
-
-const sum = (rows, key) => rows.reduce((total, row) => total.plus(new Prisma.Decimal(row[key] || 0)), new Prisma.Decimal(0));
-function reconciliation(bill, operational) {
-  const packing = operational.packing || defaultOperational().packing;
-  const groups = packing.groups || [];
-  const items = groups.flatMap(group => group.items || []);
-  const registered = new Map((bill.containers || []).map(row => [row.number, row]));
-  const transcribed = new Set(groups.map(row => row.containerNumber));
-  const missingContainers = [...registered.keys()].filter(number => !transcribed.has(number));
-  const extraContainers = [...transcribed].filter(number => !registered.has(number));
-  const sealDifferences = groups.filter(row => row.sealNumber && registered.get(row.containerNumber)?.seal && row.sealNumber !== registered.get(row.containerNumber).seal).map(row => row.containerNumber);
-  const sizeDifferences = groups.filter(row => row.size && registered.get(row.containerNumber)?.size && row.size !== registered.get(row.containerNumber).size).map(row => row.containerNumber);
-  const volumeComplete = items.length > 0 && items.every(row => row.volumeCbm != null && row.volumeCbm !== '');
-  const detailed=groups.every(g=>g.dataLevel!=='SUMMARY');const sameUnit=new Set(items.map(i=>i.packageUnit||'KOLI')).size<=1;
-  const totals = { packages: detailed&&sameUnit?items.reduce((total, row) => total + row.packages, 0):null, quantity: detailed&&sameUnit?sum(items, 'quantity').toFixed(4):null, volumeCbm: volumeComplete&&detailed ? sum(items, 'volumeCbm').toFixed(4) : null };
-  const issues = [];
-  if (!packing.sourceFileIds?.length) issues.push('PACKING_SOURCE_MISSING');
-  if (!groups.length) issues.push('PACKING_TRANSCRIPTION_MISSING');
-  if (missingContainers.length) issues.push('CONTAINER_MISSING_IN_PACKING');
-  if (extraContainers.length) issues.push('CONTAINER_NOT_ON_BL');
-  if (sealDifferences.length) issues.push('SEAL_DIFFERENCE');
-  if (sizeDifferences.length) issues.push('SIZE_DIFFERENCE');
-  if (totals.packages!=null&&bill.packages > 0 && totals.packages !== bill.packages) issues.push('PACKAGE_TOTAL_DIFFERENCE');
-  if (items.length && !volumeComplete) issues.push('VOLUME_UNIT_OR_VALUE_UNCONFIRMED');
-  if (totals.volumeCbm != null && new Prisma.Decimal(bill.volumeCbm || 0).gt(0) && !new Prisma.Decimal(totals.volumeCbm).eq(bill.volumeCbm)) issues.push('VOLUME_TOTAL_DIFFERENCE');
-  return { status: !groups.length ? 'INCOMPLETE' : issues.some(value => !['PACKING_SOURCE_MISSING'].includes(value)) ? 'MISMATCH' : packing.status === 'CONFIRMED' ? 'MATCHED' : 'INCOMPLETE', issues, missingContainers, extraContainers, sealDifferences, sizeDifferences, totals };
 }
 
 function operationalOf(bill) {
@@ -122,7 +94,7 @@ async function get(tx, id) {
   const bill = await require('./blRegister').get(tx, id);
   const operational = operationalOf(bill);
   const costs = await tx.jobCharge.findMany({ where: { jobId: bill.jobId, kind: 'COST' }, include: { vendor: { select: { id: true, name: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
-  return { operational, reconciliation: reconciliation(bill, operational), costs: costs.map(presentCost) };
+  return { operational, costs: costs.map(presentCost) };
 }
 
 async function update(tx, user, id, body) {
@@ -133,13 +105,13 @@ async function update(tx, user, id, body) {
   const recap=require('./packingRecap');
   if(bill.registerData?.internalRecap?.valid&&recap.fingerprint(bill)!==recap.fingerprint({...bill,registerData:{...bill.registerData,operational}}))await recap.invalidateShared(tx,user,bill);
   if (JSON.stringify([before.packing.status,before.packing.groups,before.packing.sourceFileIds,before.deadlines]) !== JSON.stringify([operational.packing.status,operational.packing.groups,operational.packing.sourceFileIds,operational.deadlines])) operational.packing.headerStatus = 'DRAFT';
-  const registerData = { ...(bill.registerData || {}), operational: json(operational) };
+  const registerData = { ...(bill.registerData || {}), workflowVersion:2, operational: json(operational) };
   await tx.seaBill.update({ where: { id }, data: { registerData, version: { increment: 1 } } });
   await audit(tx, user, 'BL_OPERATIONAL_WORKSPACE_UPDATED', 'JobOrder', bill.jobId, { seaBillId: id, operational });
-  return { operational, reconciliation: reconciliation(bill, operational), version: bill.version + 1 };
+  return { operational, version: bill.version + 1 };
 }
 
-async function createCost(tx, user, id, body) {
+async function createCost(tx, user, id, body, context = {}) {
   const bill = await require('./blRegister').get(tx, id);
   await sea.getBill(tx, bill.jobId, id, body.version);
   const quantity = decimal(String(body.quantity), 'Quantity', 4, true);
@@ -150,12 +122,12 @@ async function createCost(tx, user, id, body) {
   const evidenceFileId = optionalText(body.evidenceFileId, 'Evidence file', 100);
   fail(!evidenceFileId || bill.files.some(file => file.id === evidenceFileId), 'Select an attached evidence file');
   const line = { description: text(body.description, 'Description', 300), quantity: quantity.toFixed(4), unit: text(body.unit || 'JOB', 'Unit', 30), unitPrice: unitPrice.toFixed(2), amount: amount.toFixed(2), vatIncluded: Boolean(body.vatIncluded), vatRate: optionalText(body.vatRate, 'VAT rate', 20), pph23Applicable: Boolean(body.pph23Applicable) };
-  const snapshot = json({ billId: id, type: 'OPERATIONAL_COST', line, evidenceFileId, currency: 'IDR' });
-  const charge = await tx.jobCharge.create({ data: { jobId: bill.jobId, shipmentId: null, kind: 'COST', status: 'PROPOSED', ...fields, description: line.description, estimatedAmount: amount, tariffSnapshot: snapshot, notes: optionalText(body.notes, 'Cost notes', 2000), createdById: user.id } });
+  const snapshot = json({ billId: id, type: 'OPERATIONAL_COST', line, evidenceFileId, currency: 'IDR', ...(context.driverBonId?{driverBonId:context.driverBonId}: {}) });
+  const charge = await tx.jobCharge.create({ data: { jobId: bill.jobId, shipmentId: null, kind: 'COST', status: 'PROPOSED', ...(context.driverBonId?{tariffKey:'BONRATE:'+context.driverBonId}:{}), ...fields, description: line.description, estimatedAmount: amount, tariffSnapshot: snapshot, notes: optionalText(body.notes, 'Cost notes', 2000), createdById: user.id } });
   const approval = await require('./director').submit(tx, user, 'CHARGE_APPROVE', charge.id, { actualAmount: amount.toFixed(2) }, 'Operational cost recorded from the B/L workspace.');
   await tx.seaBill.update({ where: { id }, data: { version: { increment: 1 } } });
   await audit(tx, user, 'BL_OPERATIONAL_COST_PROPOSED', 'JobOrder', bill.jobId, { seaBillId: id, chargeId: charge.id, snapshot });
   return { charge: presentCost({ ...charge, vendor: fields.vendorId ? await tx.company.findUnique({ where: { id: fields.vendorId }, select: { id: true, name: true } }) : null }), approval, version: bill.version + 1 };
 }
 
-module.exports = { defaultOperational, normalizeOperational, packingGroup, reconciliation, operationalOf, get, update, createCost };
+module.exports = { defaultOperational, normalizeOperational, packingGroup, operationalOf, get, update, createCost };

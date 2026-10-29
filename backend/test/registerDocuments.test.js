@@ -98,17 +98,17 @@ test('register uploads use secure multipart storage, keep attachment history and
   await httpFixture(async({bill,root})=>{
     const names=[];
     try {
-      for(const category of ['PACKING_LIST','SUPPORTING','FINAL']) {
+      for(const category of ['PACKING_LIST','SUPPORTING','DRIVER_BON','FINAL']) {
         const response=await fetch(`${root}/api/bl-register/bill/files`,{method:'POST',headers:{'x-role':'ADMIN'},body:multipart(category,String(bill.version))});
         assert.equal(response.status,201);const body=await response.json();
         names.push(bill.files[0].filename);assert.equal(body.version,bill.version);
         assert.equal(body.data[0].category,category);assert.equal(body.data[0].filename,undefined);
         assert.match(await fs.readFile(jobFiles.filePath(bill.files[0].filename),'utf8'),/^%PDF-/);
       }
-      assert.equal(bill.files.length,3);assert.equal(bill.version,4);
+      assert.equal(bill.files.length,4);assert.equal(bill.version,5);
       assert.equal(bill.registerNumber,undefined);
       const response=await fetch(`${root}/api/bl-register/bill/files`,{headers:{'x-role':'ADMIN'}});
-      assert.equal((await response.json()).data.length,5);
+      assert.equal((await response.json()).data.length,6);
     } finally {for(const name of names)await jobFiles.removeFile(name);}
   });
 });

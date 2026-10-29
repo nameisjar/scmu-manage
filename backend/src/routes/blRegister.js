@@ -7,6 +7,7 @@ router.use(authenticate,authorize(...STAFF));
 router.get('/export.xlsx',require('../services/registerExport').exportHandler);
 router.use(require('./registerDocuments'));
 router.use(require('./packingImport'));
+router.use(require('./partnerPackingSummary'));
 router.use(require('./internalPacking'));
 router.get('/',route(async(req,res)=>res.json(await transaction(tx=>register.list(tx,req.query)))));
 router.get('/:id/activity',route(async(req,res)=>{
@@ -16,9 +17,13 @@ router.get('/:id/activity',route(async(req,res)=>{
 router.get('/:id/workspace',route(async(req,res)=>res.json(await transaction(tx=>require('../services/blWorkspace').get(tx,req.params.id)))));
 router.put('/:id/workspace',route(async(req,res)=>res.json(await transaction(tx=>require('../services/blWorkspace').update(tx,req.user,req.params.id,req.body)))));
 router.post('/:id/operational-costs',route(async(req,res)=>res.status(201).json(await transaction(tx=>require('../services/blWorkspace').createCost(tx,req.user,req.params.id,req.body)))));
+router.get('/:id/driver-bons',route(async(req,res)=>res.json(await require('../services/driverBons').list(prisma,req.params.id))));
+router.post('/:id/driver-bons',route(async(req,res)=>res.status(201).json(await transaction(tx=>require('../services/driverBons').save(tx,req.user,req.params.id,null,req.body)))));
+router.put('/:id/driver-bons/:bonId',route(async(req,res)=>res.json(await transaction(tx=>require('../services/driverBons').save(tx,req.user,req.params.id,req.params.bonId,req.body)))));
+router.post('/:id/driver-bons/:bonId/cost',route(async(req,res)=>res.status(201).json(await transaction(tx=>require('../services/driverBons').proposeCost(tx,req.user,req.params.id,req.params.bonId,req.body)))));
 router.get('/:id',route(async(req,res)=>res.json(register.present(await register.get(prisma,req.params.id)))));
 router.post('/',route(async(req,res)=>{
- text(req.body.billNumber,'BL number',100);register.normalize(req.body);
+ text(req.body.billNumber,'BL number',100,true);register.normalize(req.body);
  res.status(201).json(await transaction(tx=>require('../services/blImports').save(tx,req.user,null,req.body)));
 }));
 router.put('/:id',route(async(req,res)=>res.json(await transaction(tx=>require('../services/blImports').save(tx,req.user,req.params.id,req.body)))));

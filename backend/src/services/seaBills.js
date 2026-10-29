@@ -165,7 +165,7 @@ async function updateBill(tx, user, jobId, id, body) {
 async function attach(tx, user, jobId, id, body, file) {
   const bill = await getBill(tx, jobId, id, body.version);
   fail(!bill.archivedAt&&!bill.registerData?.archivedAt, 'Archived register records are read-only', 409);
-  const category = choice(body.category, ['DRAFT','FINAL','RELEASE','DELIVERY_ORDER','PACKING_LIST','INTERNAL_PACKING_LIST','PACKING_HEADER','RECEIVING_REPORT','INVOICE','MANIFEST','WAYBILL','POD','TAX_INVOICE','PPH23_CERTIFICATE','SUPPORTING'], 'Sea attachment category');
+  const category = choice(body.category, ['DRAFT','FINAL','RELEASE','DELIVERY_ORDER','PACKING_LIST','INTERNAL_PACKING_LIST','PACKING_HEADER','RECEIVING_REPORT','INVOICE','MANIFEST','WAYBILL','POD','TAX_INVOICE','PPH23_CERTIFICATE','DRIVER_BON','SUPPORTING'], 'Sea attachment category');
   const referenceRequired=['DELIVERY_ORDER','RECEIVING_REPORT'].includes(category);
   const externalNumber = text(body.externalNumber, 'Document number', 100, !referenceRequired);
   const documentDate = date(body.documentDate, !referenceRequired);

@@ -6,23 +6,13 @@ const sea = require('./seaBills');
 const { canonical, MIME } = require('./packingImport');
 const { randomUUID } = require('node:crypto');
 const day = value => value ? new Date(value).toISOString().slice(0, 10) : null;
-const issueLabels = {
-  PACKING_SOURCE_MISSING: 'Berkas sumber Packing List belum dipilih',
-  PACKING_TRANSCRIPTION_MISSING: 'Rincian Packing List belum ditranskripsikan',
-  CONTAINER_MISSING_IN_PACKING: 'Sebagian kontainer B/L belum tercakup dalam transkripsi',
-  CONTAINER_NOT_ON_BL: 'Transkripsi memuat kontainer di luar B/L',
-  SEAL_DIFFERENCE: 'Nomor segel berbeda antara B/L dan Packing List',
-  SIZE_DIFFERENCE: 'Ukuran kontainer berbeda antara B/L dan Packing List',
-  PACKAGE_TOTAL_DIFFERENCE: 'Total koli berbeda antara B/L dan Packing List',
-  VOLUME_TOTAL_DIFFERENCE: 'Total CBM berbeda antara B/L dan Packing List',
-  VOLUME_UNIT_OR_VALUE_UNCONFIRMED: 'Satuan atau nilai volume belum dikonfirmasi',
-};
+
 
 function snapshot(bills, headerNumber) {
   fail(bills.length > 0 && bills.length <= 40, 'Select up to 40 B/L records');
   const first = bills[0];
   if(first.voyageId||bills.some(b=>b.voyageId))fail(bills.every(b=>b.voyageId===first.voyageId&&b.vesselId===first.vesselId),'Select B/L records from the same master vessel and voyage period');
-  fail(first.vesselName && first.voyageNumber, 'Complete vessel and voyage before creating a Packing Header');
+  if(bills.length>1)fail(first.vesselName && first.voyageNumber, 'Complete vessel and voyage before combining shipments');
   fail(bills.every(b => canonical(b.vesselName) === canonical(first.vesselName) && canonical(b.voyageNumber) === canonical(first.voyageNumber)), 'Select B/L records from the same vessel and voyage');
   const warnings = []; const seen = new Set();
   const records = bills.map(bill => {
@@ -30,23 +20,21 @@ function snapshot(bills, headerNumber) {
     fail(bill.registerData?.register?.includeInPackingHeader !== false, 'This B/L is excluded from the Packing Header');
     const operational = workspace.operationalOf(bill);
     if(bill.registerData?.internalPackingList&&bill.registerData.internalPackingList.sourceType!=='UPLOADED')fail(require('./internalPacking').ready(bill),`${bill.billNumber}: Sumber PL internal berubah. Buat ulang PL internal sebelum membuat Kepala Packing List.`,409);
-    const internalSource=require('./internalPacking').currentSource(bill);
+    const internalSource=require('./internalPacking').currentSource(bill)||(require('./packingSources').sourceOf(bill,require('./packingSources').preferredType(bill)).groups?.length?require('./internalPacking').sourceSnapshot(bill,require('./packingSources').preferredType(bill)):null);
     if(internalSource)operational.packing={...operational.packing,status:'CONFIRMED',sourceFileIds:internalSource.sources.map(s=>s.id),groups:internalSource.groups};
     const groups = operational.packing.groups;
     const book = bill.registerData?.register || {};
-    const containers = register.normalize({}, bill).containers;
+    const containers = internalSource?[...new Map(groups.map(g=>[JSON.stringify([g.containerNumber,g.sealNumber]),{number:g.containerNumber,seal:g.sealNumber,size:g.size||null,goodsDescription:null}])).values()]:register.normalize({}, bill).containers;
     fail(containers.length, `Record containers on B/L ${bill.billNumber} first`);
     if (groups.length && operational.packing.status !== 'CONFIRMED') warnings.push(`${bill.billNumber}: Transkripsi Packing List masih berupa draf`);
     if (!groups.length) warnings.push(`${bill.billNumber}: Belum ada transkripsi; ringkasan memakai uraian kontainer yang diisi manual`);
-    const result = workspace.reconciliation(bill, operational);
-    if (groups.length) for (const issue of result.issues) warnings.push(`${bill.billNumber}: ${issueLabels[issue] || 'Data Packing List perlu diperiksa'}`);
     return { id: bill.id, version: bill.version, billNumber: bill.billNumber, shipperName: bill.shipperName, consigneeName: bill.consigneeName,
       departureDate: book.departureDate || null, arrivalDate: book.arrivalDate || null,
       storageUntil: operational.deadlines.storageUntil, demurrageFrom: operational.deadlines.demurrageFrom,
       sourceFileIds: operational.packing.sourceFileIds, packingStatus: operational.packing.status,
       containers: containers.map(c => {
-        const key = canonical(c.number); fail(!seen.has(key), `Container ${c.number} appears on multiple selected B/L records; resolve it first`); seen.add(key);
-        const linked = groups.filter(g => g.containerNumber === c.number);
+        const key = c.number?canonical(c.number):bill.id+':UNKNOWN'; fail(!seen.has(key), `Container ${c.number} appears on multiple selected B/L records; resolve it first`); seen.add(key);
+        const linked = groups.filter(g => g.containerNumber === c.number&&(!internalSource||g.sealNumber===c.seal));
         const descriptions = [...new Set(linked.flatMap(g => g.dataLevel==='SUMMARY'?[g.goodsSummary]:g.items.map(i => i.description)).filter(Boolean))];
         const fullDescription = c.goodsDescription || descriptions.join('; ') || book.cargoDescription || null;
         // Keep the header compact enough to print; full item data stays in Rincian PL.
@@ -83,7 +71,7 @@ async function workbook(data) {
     row.getCell(1).alignment = { vertical: 'middle', wrapText: true }; return row;
   }
   band('PT SCMU — KEPALA PACKING LIST', 'FFFFB3DA');
-  band(`${data.vesselName} / VOY ${data.voyageNumber}`);
+  band(`${data.vesselName||'Belum diisi'} / VOY ${data.voyageNumber||'Belum diisi'}`);
   band(data.headerNumber);
   band(`Kontainer: ${data.counts.containers} | 20': ${data.counts.size20} | 21': ${data.counts.size21} | 40': ${data.counts.size40} | Belum diketahui: ${data.counts.unknownSize}`);
   sheet.pageSetup.printTitlesRow = '1:4';
@@ -91,7 +79,7 @@ async function workbook(data) {
     sheet.addRow([]);
     band(`PENGIRIM: ${record.shipperName || '—'}`, 'FFFFB3DA');
     band(`PENERIMA: ${record.consigneeName || '—'}`, 'FFFFFF99');
-    band(`NO. B/L: ${record.billNumber}`);
+    band(`NO. B/L: ${record.billNumber||'Belum tersedia'}`);
     band(`Keluar: ${day(record.departureDate) || '—'} | Masuk: ${day(record.arrivalDate) || '—'}`);
     band(`Batas storage: ${day(record.storageUntil) || '—'} | Mulai demurrage: ${day(record.demurrageFrom) || '—'}`, 'FFFFE5E5');
     const heading = sheet.addRow(['NO', 'KONTAINER', 'SEGEL', 'UKURAN', 'RINGKASAN BARANG / MARK', 'KOLI']);

@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Boxes, PackageOpen, Files, Wallet, Archive, Save } from 'lucide-react';
+import { LayoutDashboard, Truck, PackageOpen, Files, Wallet, Archive, Save } from 'lucide-react';
 import api from '../../api/client';
 import { Button, Modal } from '../../components/common';
 import { DataTable, Notice, usePagedResource } from '../../components/jpt/Workspace';
@@ -11,14 +11,16 @@ import BLPageHeader from './BLPageHeader';
 import BLSummary, { BillingSummary } from './BLSummary';
 import RegisterDocuments from './RegisterDocuments';
 import TariffEstimator from './TariffEstimator';
-import { ContainerWorkspace, OperationalWorkspace, OperationalCosts } from './BLWorkspacePanels';
+import { OperationalWorkspace, OperationalCosts } from './BLWorkspacePanels';
+import DriverBons from './DriverBons';
+import ShipmentProgress from './ShipmentProgress';
 import { isRegisterArchived } from './registerModel.mjs';
 
 const sections = [
   { value: 'summary', label: 'Ringkasan', icon: LayoutDashboard, tabs: ['summary'] },
-  { value: 'containers', label: 'Kontainer & Bongkar', icon: Boxes, tabs: ['containers', 'unloading'] },
-  { value: 'packing', label: 'Packing List', icon: PackageOpen, tabs: ['packing'] },
-  { value: 'documents', label: 'Dokumen', icon: Files, tabs: ['documents', 'checks'] },
+  { value: 'documents', label: 'Dokumen', icon: Files, tabs: ['documents'] },
+  { value: 'packing', label: 'Packing List & Rekap', icon: PackageOpen, tabs: ['packing'] },
+  { value: 'driver-bons', label: 'Bonrate Sopir', icon: Truck, tabs: ['driver-bons'] },
   { value: 'costs', label: 'Biaya & Riwayat', icon: Wallet, tabs: ['costs', 'history'] },
 ];
 
@@ -26,10 +28,10 @@ export default function BLWorkspace({ bill: initialBill }) {
   const [bill, setBill] = useState(initialBill); const [params, setParams] = useSearchParams();
   const { t } = useBL(); const navigation = useWorkspaceNavigation(); const id = useId();
   const [editing, setEditing] = useState(() => !isRegisterArchived(initialBill) && (params.get('tab') === 'identity' || params.get('edit') === '1')); const [editorState, setEditorState] = useState({ saving: false, conflict: false }); const [success, setSuccess] = useState('');
-  const requested = params.get('tab'); const tab = sections.some(s => s.tabs.includes(requested)) ? requested : 'summary';
+  const legacyTab=params.get('tab');const requested=legacyTab==='containers'?'summary':legacyTab==='unloading'?'packing':['checks','matching'].includes(legacyTab)?'documents':legacyTab; const tab = sections.some(s => s.tabs.includes(requested)) ? requested : 'summary';
   const primary = sections.find(s => s.tabs.includes(tab)); const archived = isRegisterArchived(bill);
   const history = usePagedResource(tab === 'history' ? '/bl-register/' + bill.id + '/activity' : null, {}, 'activity');
-  useDetailNavigation(bill.billNumber, null);
+  useDetailNavigation(bill.billNumber||t('Draf pengiriman'), null);
   const setTab = value => {
     navigation.scrollToTop();
     setParams(previous => { const next = new URLSearchParams(previous); next.set('tab', value); return next; }, { replace: true });
@@ -40,7 +42,7 @@ export default function BLWorkspace({ bill: initialBill }) {
     setEditing(false);
     if(params.get('tab')==='identity'||params.get('edit'))setParams(previous=>{const next=new URLSearchParams(previous);next.delete('edit');if(next.get('tab')==='identity')next.delete('tab');return next;},{replace:true});
   };
-  const subTabs = primary.value === 'containers' ? [['containers', 'Data kontainer'], ['unloading', 'Pemeriksaan bongkar']] : primary.value === 'documents' ? [['documents', 'Berkas dokumen'], ['checks', 'Pemeriksaan dokumen']] : primary.value === 'costs' ? [['costs', 'Biaya operasional'], ['history', 'Riwayat perubahan']] : [];
+  const subTabs = primary.value === 'costs' ? [['costs', 'Biaya operasional'], ['history', 'Riwayat perubahan']] : [];
   const keyTabs = (event, index) => {
     const key = event.key; if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
     event.preventDefault(); const target = key === 'Home' ? 0 : key === 'End' ? sections.length - 1 : (index + (key === 'ArrowRight' ? 1 : -1) + sections.length) % sections.length;
@@ -48,7 +50,7 @@ export default function BLWorkspace({ bill: initialBill }) {
   };
   return <div className="bl-detail-page">
     <BLPageHeader bill={bill} onEdit={() => { setEditorState({ saving: false, conflict: false }); setEditing(true); }} />
-    <div className="bl-workspace-body">
+    <div className="bl-workspace-body"><ShipmentProgress bill={bill}/>
       {success && <p role="status" className="rounded-lg border border-emerald-600/30 bg-emerald-500/5 px-4 py-3 mb-5 text-sm text-emerald-400">{t(success)}</p>}
       {archived && <div className="bl-archived-notice"><Archive size={17} />{t('Register diarsipkan: hanya baca. Pulihkan dari daftar untuk mengubah data.')}</div>}
       <nav className="bl-primary-tabs" role="tablist" aria-label={t('Bagian pengiriman')} data-bl-tabs>
@@ -57,10 +59,10 @@ export default function BLWorkspace({ bill: initialBill }) {
       <div id={id + '-panel'} role="tabpanel" aria-labelledby={id + '-tab-' + primary.value} className="min-w-0">
         {subTabs.length > 0 && <div className="bl-subtabs" aria-label={t(primary.label)}>{subTabs.map(([value, label]) => <button key={value} type="button" aria-pressed={tab === value} onClick={() => setTab(value)}>{t(label)}</button>)}</div>}
         {tab === 'summary' && <BLSummary bill={bill} onNavigate={setTab} />}
-        {tab === 'containers' && <ContainerWorkspace bill={bill} onChanged={reload} />}
-        {['packing', 'checks', 'unloading'].includes(tab) && <OperationalWorkspace key={tab} bill={bill} section={tab} onChanged={reload} />}
+        {tab === 'driver-bons' && <DriverBons bill={bill} onChanged={reload} />}
+        {['packing'].includes(tab) && <OperationalWorkspace key={tab} bill={bill} section={tab} onChanged={reload} />}
         {tab === 'costs' && <div className="space-y-5"><BillingSummary bill={bill} /><OperationalCosts bill={bill} onChanged={reload} /><details className="card overflow-hidden"><summary className="cursor-pointer select-none px-5 py-4 font-semibold text-zinc-200 hover:bg-zinc-900/60">{t('Tarif pendapatan')}<span className="ml-2 text-xs font-normal text-zinc-500">{t('Buka untuk menghitung tagihan berdasarkan master tarif')}</span></summary><div className="border-t border-zinc-800 p-4"><TariffEstimator bill={bill} onChanged={reload} /></div></details></div>}
-        {tab === 'documents' && <RegisterDocuments bill={bill} onVersion={reload} />}
+        {tab === 'documents' && <div className="space-y-5"><RegisterDocuments bill={bill} onVersion={reload} /><details className="card p-4"><summary className="text-sm cursor-pointer">{t('Batas waktu pelabuhan')}</summary><div className="mt-4"><OperationalWorkspace bill={bill} section="checks" onChanged={reload}/></div></details></div>}
         {tab === 'history' && <section className="space-y-3"><h2 className="font-semibold text-base">{t('Riwayat perubahan')}</h2><Notice message={history.error} /><DataTable rows={history.rows} pagination={history.pagination} empty={t('No activity yet')} columns={[
           { key: 'createdAt', label: t('Date'), render: row => row.createdAt?.slice(0, 19).replace('T', ' ') },
           { key: 'action', label: t('Action'), render: row => t(row.action) }, { key: 'user', label: t('User'), render: row => row.user?.name || '—' },

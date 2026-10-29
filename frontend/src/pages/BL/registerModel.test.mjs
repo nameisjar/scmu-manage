@@ -11,7 +11,7 @@ test('one register payload keeps version and excludes removed legacy feature dat
   assert.equal(typeof model.registerPayload, 'function');
   const payload = model.registerPayload({ version: 7, billNumber: 'B-1', financials: { revenue: 999 }, register: { customerName: 'Party' }, containers: [{ number: 'C1', size: null, status: 'REGISTERED' }, { number: 'C2', size: '21', status: 'DOORING' }] });
   assert.equal(payload.version, 7); assert.equal(payload.register.dateMeaning, 'UNCONFIRMED');
-  assert.equal(payload.containers, undefined); assert.equal(payload.register.customerName, undefined);
+  assert.equal(payload.containers.length, 2); assert.equal(payload.containers[1].status, 'DOORING'); assert.equal(payload.register.customerName, undefined);
   assert.equal(payload.financials, undefined);
 });
 test('unified manual fields retain exact decimal strings and independent quantities', () => {

@@ -10,7 +10,7 @@ export function registerPayload(form) {
   }
   const amount = form.registerAmount;
   if (amount !== '' && amount !== null && amount !== undefined && (typeof amount !== 'string' || !/^-?\d+(?:\.\d{1,2})?$/.test(amount))) throw Error('Nominal harus berupa teks desimal (maksimal dua angka desimal), tanpa pemisah ribuan.');
-  return { ...Object.fromEntries(keys.filter(key => form[key] !== undefined).map(key => [key, form[key]])), ...(form.importSessionId&&form.containers?{containers:form.containers}:{}), registerAmount: amount === '' || amount == null ? null : amount, register };
+  return { ...Object.fromEntries(keys.filter(key => form[key] !== undefined).map(key => [key, form[key]])), ...(Array.isArray(form.containers)?{containers:form.containers}:{}), registerAmount: amount === '' || amount == null ? null : amount, register };
 }
 export function isRegisterArchived(row = {}) { return Boolean(row.archived || row.archivedAt || row.registerData?.archivedAt || row.register?.archivedAt); }
 export function registerDocumentAvailability(row = {}) {

@@ -77,6 +77,25 @@ test('legacy BL deletion clears its file pointer while retaining its required do
   await documents.remove(tx, user, 'bill', 'doc', body);
   assert.equal(state.doc.id, 'doc'); assert.equal(state.doc.filename, null); assert.equal(documents.linkedFiles({ ...state.bill, document: state.doc }).length, 0);
 });
+
+test('deleting a partner original removes only its quick summary and keeps other summaries',async()=>{
+ const {state,tx}=fixture();state.bill.files.push({id:'summary-source',category:'PACKING_LIST',filename:'source-summary.xlsx'});state.bill.registerData.partnerPackingSummaries={'summary-source':{summary:{rows:[]}},other:{summary:{rows:[{containerNumber:'KEEP'}]}}};
+ await documents.remove(tx,user,'bill','summary-source',body);assert.equal(state.bill.registerData.partnerPackingSummaries['summary-source'],undefined);assert.equal(state.bill.registerData.partnerPackingSummaries.other.summary.rows[0].containerNumber,'KEEP');
+});
+
+test('removing a voucher attachment preserves assignment and payment records with an audit notice', async()=>{
+ const {state,tx}=fixture();state.bill.files.push({id:'bon-file',category:'DRIVER_BON',filename:'bon.txt'});state.bill.registerData.driverBons=[{id:'bon',number:'BON-1',status:'COMPLETED',paymentStatus:'PAID',amount:'100.00',evidenceFileIds:['bon-file']}];
+ await documents.remove(tx,user,'bill','bon-file',body);const bon=state.bill.registerData.driverBons[0];assert.deepEqual(bon.evidenceFileIds,[]);assert.equal(bon.status,'COMPLETED');assert.equal(bon.paymentStatus,'PAID');assert.equal(bon.amount,'100.00');assert.match(bon.evidenceNotice,/dihapus/);assert.deepEqual(state.audit[0].metadata.affectedBonIds,['bon']);
+});
+
+test('removing optional manual evidence retains the entered cargo and requires review again', async () => {
+  const {state,tx}=fixture();state.bill.files.push({id:'evidence',category:'SUPPORTING',filename:'evidence.txt',originalName:'Catatan.txt'});
+  state.bill.registerData.manualPacking={status:'CONFIRMED',basis:'Catatan admin',sourceFileIds:['evidence'],groups:[{id:'g',sourceFileId:'evidence',recipientName:'Toko',items:[{description:'Muatan',packages:98}]}]};
+  await documents.remove(tx,user,'bill','evidence',body);
+  const manual=state.bill.registerData.manualPacking;
+  assert.equal(manual.status,'DRAFT');assert.deepEqual(manual.sourceFileIds,[]);assert.equal(manual.groups[0].sourceFileId,null);assert.equal(manual.groups[0].items[0].packages,98);assert.equal(manual.basis,'Catatan admin');
+  assert.equal(state.bill.registerData.operational.packing.headerStatus,'DRAFT');assert.equal(state.bill.internalStatus,'SEA_UNCHECKED');assert.equal(state.bill.releaseStatus,'SEA_RELEASE_PENDING');assert.equal(state.doc.filename,'current.pdf');
+});
 test('deleting a source also marks a currently shared Packing Header on another shipment for review', async () => {
   const { state, tx } = fixture(); state.bill.files.unshift({ id: 'header-a', category: 'PACKING_HEADER', filename: 'shared.xlsx' });
   const related = { id: 'other', jobId: 'other-job', version: 5, registerData: { operational: workspace.defaultOperational() }, files: [{ filename: 'shared.xlsx' }] }; related.registerData.operational.packing.headerStatus = 'READY';

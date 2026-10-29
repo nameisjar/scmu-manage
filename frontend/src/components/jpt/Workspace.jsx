@@ -107,19 +107,45 @@ function UrlDataTable({paginationKey,rows,...props}) {
   const paging=usePagination(paginationKey);usePageCorrection(paging,rows.length);
   return <TableBody {...props} rows={rows} pagination={{...paging,total:rows.length}} />;
 }
-function TableBody({ columns, columnGroups, rows, empty = 'No records yet', pagination, resetKey }) {
+function TableBody({ columns, columnGroups, rows, empty = 'No records yet', pagination, resetKey, selection, layout='compact', mobileCards=false, stickyActions=false, emptyAction, actionPlacement='toolbar' }) {
   const { t } = useLanguage();
   const [page,setPage]=useState(1);const [limit,setLimit]=useState(10);
   useEffect(()=>setPage(1),[resetKey]);
   const paging=pagination||{page,limit,total:rows.length,onPageChange:setPage,onLimitChange:value=>{setLimit(value);setPage(1);}};
   const info=pageInfo(paging.total,paging.page,paging.limit);const visible=pagination===false||paging.server?rows:rows.slice((info.page-1)*paging.limit,info.page*paging.limit);
   useEffect(()=>{if(!pagination&&page!==info.page)setPage(info.page);},[pagination,page,info.page]);
-  const groups=(columnGroups||[]).map(group=>({...group,colSpan:columns.filter(column=>group.keys.includes(column.key)).length})).filter(group=>group.colSpan);
-  return <div className="card overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-max text-sm" aria-busy={paging.loading}><thead>{groups.length>0&&<tr className="border-b border-zinc-800/70 bg-zinc-950/60">
+  const [selectedKey,setSelectedKey]=useState(null);
+  useEffect(()=>setSelectedKey(null),[info.page,paging.limit,resetKey]);
+  useEffect(()=>{if(paging.loading)setSelectedKey(null);},[paging.loading]);
+  const offset=pagination===false?0:(info.page-1)*paging.limit;
+  const keyOf=(row,index)=>String(row.id??offset+index);
+  const actionColumns=columns.filter(column=>column.key==='actions');
+  const actions=actionPlacement==='row'?[]:actionColumns;
+  const selectedKeys=selection?selection.keys.map(String):selectedKey===null?[]:[selectedKey];
+  const picked=selectedKeys.length===1&&!paging.loading?visible.find((row,index)=>keyOf(row,index)===selectedKeys[0]):null;
+  const pickedLabel=picked&&['billNumber','name','code','number','email'].map(key=>picked[key]).find(value=>typeof value==='string'&&value.length);
+  const pick=(row,index,checked)=>selection?selection.onToggle(row,checked):setSelectedKey(checked?keyOf(row,index):null);
+  const dataColumns=columns.filter(column=>actionPlacement==='row'||column.key!=='actions');
+  const numbered=dataColumns.some(column=>column.key==='rowNumber'||['No.','No'].includes(column.label));
+  const prefix=[...(actions.length?[{key:'__selection',label:'Pilih',className:'sticky left-0 z-10 bg-zinc-950 w-14',render:(row,index)=><input type="checkbox" aria-label={`${t('Pilih baris')} ${offset+index+1}`} checked={selectedKeys.includes(keyOf(row,index))} disabled={paging.loading||Boolean(selection?.max&&!selectedKeys.includes(keyOf(row,index))&&selectedKeys.length>=selection.max)} onChange={event=>pick(row,index,event.target.checked)}/>}]:[]),...(!numbered?[{key:'__rowNumber',label:'No.',className:'w-14 tabular-nums',render:(_row,index)=>offset+index+1}]:[])];
+  const tableColumns=[...prefix,...dataColumns];
+  const renderActions=(column,row)=>column.items?<div className="flex flex-wrap items-center gap-2">{column.items.map(item=>{
+    const disabled=!row||paging.loading||Boolean(item.disabled?.(row));const label=t(typeof item.label==='function'?item.label(row):item.label);
+    return item.href&&!disabled?<Link key={item.key||label} className="btn btn-secondary inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200" to={item.href(row)}>{label}</Link>:<Button key={item.key||label} type="button" size="sm" variant={item.variant||'secondary'} disabled={disabled} onClick={()=>row&&item.onClick?.(row)}>{label}</Button>;
+  })}</div>:row?column.render(row):null;
+  const groups=(columnGroups||[]).map(group=>({...group,colSpan:dataColumns.filter(column=>group.keys.includes(column.key)).length})).filter(group=>group.colSpan);
+  if(groups.length&&prefix.length)groups.unshift({label:'',colSpan:prefix.length});
+  return <div className="space-y-3" data-workspace-table data-table-layout={layout} data-mobile-cards={mobileCards||undefined}>
+    {actions.length>0&&<div className={`card p-3 flex flex-wrap items-center gap-3 ${stickyActions?'table-toolbar-sticky':''}`} role="toolbar" aria-label={t('Tindakan tabel')} data-table-toolbar>
+      <span className="text-sm text-zinc-500 mr-auto min-w-0 break-words">{picked?t('Satu baris dipilih'):selectedKeys.length>1?`${selectedKeys.length} ${t('baris dipilih; pilih satu untuk tindakan per data.')}`:t('Pilih satu baris untuk menampilkan tindakan.')}{pickedLabel&&<strong className="ml-2 font-medium text-zinc-300">{pickedLabel}</strong>}</span>
+      {selectedKeys.length>0&&<Button type="button" variant="ghost" size="sm" onClick={()=>selection?selection.onClear():setSelectedKey(null)}>{t('Batalkan pilihan')}</Button>}
+      {actions.map(column=><div key={column.key} data-selected-row-actions={picked?true:undefined}>{renderActions(column,picked)}</div>)}
+    </div>}
+    <div className="card overflow-hidden"><div className="overflow-x-auto table-scroll"><table className={`w-full text-sm ${layout==='wide'?'min-w-max':'workspace-compact-table'}`} style={layout==='compact'?{minWidth:Math.max(540,dataColumns.length*100+prefix.length*44)}:undefined} aria-busy={paging.loading}><colgroup>{tableColumns.map(column=><col key={column.key} style={{width:column.width||(['__selection','selected','select'].includes(column.key)?56:['__rowNumber','rowNumber'].includes(column.key)?44:undefined)}}/>)}</colgroup><thead>{groups.length>0&&<tr className="border-b border-zinc-800/70 bg-zinc-950/60">
     {groups.map(group=><th key={group.label} colSpan={group.colSpan} className="px-4 py-2 text-left text-[11px] font-semibold uppercase tracking-widest text-brand-300/80">{t(group.label)}</th>)}
   </tr>}<tr className="border-b border-zinc-800">
-    {columns.map(column => <th key={column.key} className={`px-4 py-3 whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-zinc-500 ${column.align === 'right' ? 'text-right' : 'text-left'} ${column.className || ''}`}>{t(column.label)}</th>)}
-  </tr></thead><tbody className="divide-y divide-zinc-800/60">{paging.loading?<tr><td colSpan={columns.length}><Spinner /></td></tr>:visible.length ? visible.map((row,index) => <tr key={row.id??index} className="hover:bg-zinc-900/40">{columns.map(column => <td key={column.key} className={`px-4 py-3 text-zinc-300 align-top ${column.align === 'right' ? 'text-right' : ''} ${column.className || ''}`}>{column.render ? column.render(row) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-zinc-500">{t(empty)}</td></tr>}</tbody></table></div>{pagination!==false&&<Pagination {...paging} page={info.page} />}</div>;
+    {tableColumns.map(column => <th key={column.key} scope="col" className={`px-4 py-3 whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-zinc-500 ${column.align === 'right' ? 'text-right' : 'text-left'} ${column.className || ''}`}>{t(column.label)}</th>)}
+  </tr></thead><tbody className="divide-y divide-zinc-800/60">{paging.loading?<tr><td colSpan={tableColumns.length}><Spinner /></td></tr>:visible.length ? visible.map((row,index) => <tr key={keyOf(row,index)} data-row-number={offset+index+1} aria-selected={actions.length?selectedKeys.includes(keyOf(row,index)):undefined} className="hover:bg-zinc-900/40">{tableColumns.map(column => <td key={column.key} data-column={column.key} data-label={t(column.label)} data-primary={column.primary||undefined} className={`px-4 py-3 text-zinc-300 align-top ${column.align === 'right' ? 'text-right' : ''} ${column.className || ''}`}>{column.key==='actions'?renderActions(column,row):column.render ? column.render(row,index) : row[column.key] ?? '—'}</td>)}</tr>) : <tr><td colSpan={tableColumns.length} className="px-4 py-10 text-center text-zinc-500"><p>{t(empty)}</p>{emptyAction&&<div className="mt-3">{emptyAction}</div>}</td></tr>}</tbody></table></div>{pagination!==false&&<Pagination {...paging} page={info.page} />}</div></div>;
 }
 export function Tabs({ items, value, onChange }) {
   const { t } = useLanguage();

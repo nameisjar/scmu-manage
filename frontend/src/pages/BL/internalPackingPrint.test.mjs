@@ -1,5 +1,10 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {printableInternalPacking} from './internalPackingPrint.mjs';
 const report=()=>({documentNumber:'PL-UJI',billNumber:'BL-UJI',vesselName:'KM Uji',voyageNumber:'04/26',sourceType:'RECEIVING_REPORT',sources:[{number:'BA-001',date:'2026-10-27'}],inspector:'Petugas',groups:[{containerNumber:'SCMU1234567',recipientName:'Toko uji',items:[{description:'Barang uji',expectedPackages:10,packages:9,damagedPackages:2,volumeCbm:null}]}],totals:{packages:9,volumeCbm:null},warnings:[]});
+
+test('manual PL prints the reason and server author safely without requiring a source attachment',()=>{
+ const data=report();data.sourceType='MANUAL';data.sources=[];data.outputMode='BOTH';data.manual={basis:'Konfirmasi <b>pengirim</b>',recordedByName:'Admin & SCMU',recordedAt:'2026-10-28T01:00:00Z'};
+ const html=printableInternalPacking(data);assert.match(html,/Input manual/);assert.match(html,/Konfirmasi &lt;b&gt;pengirim&lt;\/b&gt;/);assert.match(html,/Admin &amp; SCMU/);assert.match(html,/2026-10-28/);assert.doesNotMatch(html,/Dasar: Berita Acara/);
+});
 test('printed receiving-based PL retains expected, actual, damage, negative difference and source number',()=>{
  const html=printableInternalPacking(report());assert.match(html,/BA-001 \/ 2026-10-27/);assert.match(html,/Koli dokumen/);assert.match(html,/Koli aktual/);assert.match(html,/<td>10<\/td><td>9<\/td><td>2<\/td><td>-1<\/td>/);assert.match(html,/TOTAL KOLI: 9 \| CBM: —/);
 });

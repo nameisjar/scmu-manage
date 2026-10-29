@@ -14,7 +14,7 @@ export default function PackingImport({ bill, disabled, onAttached, onApplied, e
   const [confirmed, setConfirmed] = useState(false); const [unit, setUnit] = useState('UNCONFIRMED');
   const [existing, setExisting] = useState('');
   const sources = (bill.files || []).filter(f => f.category === 'PACKING_LIST' && f.mimeType === MIME);
-  const show = data => { setPreview(data); setSelected(data.groups.filter(g => g.registered && g.sealMatches).map(g => g.id)); setConfirmed(false); setUnit('UNCONFIRMED'); };
+  const show = data => { setPreview(data); setSelected(data.groups.map(g => g.id)); setConfirmed(false); setUnit('UNCONFIRMED'); };
   const upload = async event => {
     const file = event.target.files?.[0]; if (!file) return;
     setError('');
@@ -40,7 +40,7 @@ export default function PackingImport({ bill, disabled, onAttached, onApplied, e
     } catch (err) { setError(err.response?.data?.message || err.message); } finally { setBusy(false); }
   };
   return <div className="card p-5 space-y-4">
-    <div><h3 className="font-semibold">{t(existingOnly?'Baca rincian dari sumber':'Impor Packing List Excel mitra')}</h3><p className="text-sm text-zinc-400 mt-1">{t('Unggah file asli, periksa hasil pembacaan, lalu pilih penerima yang termasuk B/L ini. Data masuk sebagai draf untuk diperiksa; file asli tetap tersimpan.')}</p></div>
+    <div><h3 className="font-semibold">{t(existingOnly?'Baca rincian dari sumber':'Impor Packing List Excel mitra')}</h3><p className="text-sm text-zinc-400 mt-1">{t('Unggah file asli dan pilih rincian untuk pengiriman ini. Admin memeriksa dokumen secara manual; B/L boleh menyusul.')}</p></div>
     <Notice message={error} />
     <fieldset disabled={disabled || busy} className="flex flex-wrap gap-3 items-end">
       {!existingOnly&&<label className="flex-1 min-w-56 space-y-1 text-xs text-zinc-400">{t('File Excel mitra (.xlsx)')}<input ref={input} className="input-field block mt-1" type="file" accept=".xlsx" onChange={upload} /></label>}
@@ -56,16 +56,16 @@ export default function PackingImport({ bill, disabled, onAttached, onApplied, e
         {preview.headings.map((h, i) => <p key={i} className="text-xs text-zinc-400 break-words">{h}</p>)}
         {preview.alreadyImported && <p className="text-amber-300 text-sm">{t('File yang sama sudah diimpor ke B/L ini. Ubah hasilnya pada transkripsi untuk menghindari duplikasi.')}</p>}
         <div className="rounded-lg border border-amber-900/60 p-3 text-sm text-amber-200 space-y-1">{preview.warnings.map(w => <p key={w}>{translatePackingWarning(w,t)}</p>)}</div>
-        <p className="text-sm text-zinc-400">{t('Pilih semua kelompok yang diperlukan sekali impor. Kontainer yang belum tercatat harus ditambahkan melalui tab Kontainer. Segel yang berbeda perlu diperiksa.')}</p>
+        <p className="text-sm text-zinc-400">{t('Pilih rincian yang ingin digunakan pada pengiriman ini. Identitas kontainer dan segel tetap mengikuti file sumber.')}</p>
+
         <DataTable rows={preview.groups} columns={[
-          { key: 'select', label: t('Pilih'), render: g => <input aria-label={`${t('Pilih')} ${g.containerNumber} ${g.recipientName}`} type="checkbox" disabled={busy || !g.registered || preview.alreadyImported} checked={selected.includes(g.id)} onChange={e => { setSelected(s => e.target.checked ? [...s, g.id] : s.filter(id => id !== g.id)); setConfirmed(false); }} /> },
-          { key: 'containerNumber', label: t('Nomor kontainer'), render: g => <div className="font-mono">{g.containerNumber}<span className="block text-xs text-zinc-400">{g.sealNumber}</span><span className={`block text-xs ${g.sealMatches ? 'text-emerald-400' : 'text-amber-300'}`}>{t(!g.registered ? 'Belum tercatat pada B/L ini' : g.sealMatches ? 'Kontainer dan segel cocok' : 'Periksa perbedaan segel')}</span></div> },
+          { key: 'select', label: t('Pilih'), render: g => <input aria-label={`${t('Pilih')} ${g.containerNumber} ${g.recipientName}`} type="checkbox" disabled={busy || preview.alreadyImported} checked={selected.includes(g.id)} onChange={e => { setSelected(s => e.target.checked ? [...s, g.id] : s.filter(id => id !== g.id)); setConfirmed(false); }} /> },
+          { key: 'containerNumber', label: t('Nomor kontainer'), render: g => <div className="font-mono">{g.containerNumber}<span className="block text-xs text-zinc-400">{g.sealNumber}</span></div> },
           { key: 'sourceMark', label: t('Penerima / mark') },
           { key: 'items', label: t('Rincian sumber'), render: g => <details><summary className="cursor-pointer text-brand-300">{g.items.length} {t('Nama barang')} · {g.items.reduce((n, i) => n + i.packages, 0)} {t('Koli')}</summary><ul className="mt-2 space-y-2 max-w-lg">{g.items.map(i => <li key={i.id} className="text-xs"><strong>{i.packages}</strong> · {i.description}<span className="block text-zinc-500">{i.sourceSheet}!{i.sourceRow} · {i.itemDateText || '—'} · {t('M3/TN sumber')}: {i.sourceVolume ?? '—'}</span></li>)}</ul></details> },
         ]} />
-        {preview.candidates.length > 0 && <div className="text-sm space-y-2"><p>{t('Kontainer juga ditemukan pada B/L berikut. Pastikan penautannya benar.')}</p>{preview.candidates.map(c => <Link key={c.id} className="block text-brand-400" to={`/bl-register/${c.id}?tab=packing`} onClick={() => setPreview(null)}>{c.billNumber} · {c.vesselName} / {c.voyageNumber}</Link>)}</div>}
         <label className="block space-y-1 text-sm">{t('Satuan kolom volume sumber')}<select className="input-field" value={unit} disabled={busy} onChange={e => { setUnit(e.target.value); setConfirmed(false); }}><option value="UNCONFIRMED">{t('Belum dikonfirmasi; simpan nilai sumber saja')}</option><option value="CBM">{t('Saya memastikan kolom volume ini adalah CBM')}</option></select></label>
-        <label className="flex gap-3 text-sm"><input type="checkbox" checked={confirmed} disabled={busy || preview.alreadyImported || !preview.groups.length} onChange={e => setConfirmed(e.target.checked)} />{t('Saya sudah memeriksa B/L tujuan, kontainer, segel, kelompok penerima, dan satuan. Simpan pilihan ini sebagai draf.')}</label>
+        <label className="flex gap-3 text-sm"><input type="checkbox" checked={confirmed} disabled={busy || preview.alreadyImported || !preview.groups.length} onChange={e => setConfirmed(e.target.checked)} />{t('Saya sudah memeriksa hasil pembacaan, pilihan penerima, dan satuan sesuai file sumber.')}</label>
         <p className="text-xs text-zinc-500">{t('Nama, alamat, telepon, tanggal, dan rincian barang dapat dikoreksi pada transkripsi sesudah impor. Tanggal tanpa tahun tidak diubah menjadi tanggal lengkap.')}</p>
       </div>
     </DetailModal>}

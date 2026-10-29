@@ -21,12 +21,12 @@ test('draft field check retains null, confirmed results require explicit counts 
 });
 test('stale source, duplicate/foreign row IDs, impossible damage and unowned evidence are rejected',async()=>{
  for(const mutate of [v=>v.fingerprint='old',v=>v.rows[0].key='foreign',v=>v.rows[0]={...v.rows[0],actualPackages:2,damagedPackages:3},v=>v.evidenceFileIds=['other-file']]){const {b,tx}=fixture();const body=form(b);mutate(body);await assert.rejects(checks.save(tx,{id:'admin'},b.id,body),e=>[409,422].includes(e.status));}
- const {b,tx}=fixture();const body=form(b);b.containers[0].seal='new';await assert.rejects(checks.save(tx,{id:'admin'},b.id,body),e=>[409,422].includes(e.status));
+ const {b,tx}=fixture();const body=form(b);b.registerData.operational.packing.groups[0].sealNumber='new';await assert.rejects(checks.save(tx,{id:'admin'},b.id,body),e=>[409,422].includes(e.status));
 });
 test('confirmed differences need notes; unrelated operation status does not stale the source',async()=>{
  const {b,tx}=fixture();const body=form(b);const old=body.fingerprint;b.containers[0].status='DOORING';assert.equal(checks.context(b,'PARTNER_PL').fingerprint,old);
  await assert.rejects(checks.save(tx,{id:'admin'},b.id,{...body,status:'CONFIRMED',inspector:'Petugas',inspectedAt:'2026-10-27',rows:[{key:body.rows[0].key,actualPackages:9,damagedPackages:0,checked:true}]}),/Jelaskan/);
 });
 test('normalizing recipient summary keeps instructions and does not compare unknown package totals to B/L',()=>{
- const b=bill();const group={...b.registerData.operational.packing.groups[0],dataLevel:'SUMMARY',goodsSummary:'Ringkasan muatan',summaryPackages:null,items:[]};const normalized=workspace.normalizeOperational({...workspace.operationalOf(b),packing:{status:'CONFIRMED',sourceFileIds:['f'],groups:[group]}},b);assert.equal(normalized.packing.groups[0].instructions,'Tahan sampai konfirmasi');const result=workspace.reconciliation({...b,packages:10},normalized);assert.equal(result.totals.packages,null);assert.ok(!result.issues.includes('PACKAGE_TOTAL_DIFFERENCE'));
+ const b=bill();const group={...b.registerData.operational.packing.groups[0],dataLevel:'SUMMARY',goodsSummary:'Ringkasan muatan',summaryPackages:null,items:[]};const normalized=workspace.normalizeOperational({...workspace.operationalOf(b),packing:{status:'CONFIRMED',sourceFileIds:['f'],groups:[group]}},b);assert.equal(normalized.packing.groups[0].instructions,'Tahan sampai konfirmasi');assert.equal(normalized.packing.groups[0].summaryPackages,null);assert.equal(workspace.reconciliation,undefined);
 });

@@ -47,7 +47,7 @@ export default function DirectorApprovals({ jobId, onChange }) {
     <ResourceState resource={resource}><DataTable rows={rows} pagination={resource.pagination} columns={[
       { key: 'action', label: 'Approval type', render: row => t(row.action) }, { key: 'target', label: 'Reference', render: row => row.snapshot.overview.find(field => ['Internal reference','Job order','Quotation #','RFQ #','Invoice #','BL number','Original filename'].includes(field.label))?.value || '—' },
       { key: 'requestedBy', label: 'Requested by', render: row => row.requestedBy?.name }, { key: 'createdAt', label: 'Submitted at', render: row => formatDate(row.createdAt, locale, true) }, { key: 'status', label: 'Status', render: row => <><StatusBadge status={row.status} />{row.executedAt && row.action === 'PAYMENT_AUTHORIZE' && <p className="text-xs text-emerald-300 mt-1">{t('Payment recorded')}</p>}</> },
-      { key: 'actions', label: 'Actions', render: row => <Button variant="secondary" size="sm" onClick={() => setSelected(row.id)}>{t('View')}</Button> },
+      { key: 'actions', label: 'Actions', items:[{key:'view',label:'View',onClick:row=>setSelected(row.id)}] },
     ]} /></ResourceState>
     {current && !dialog && <DetailModal title="Approval details" onClose={() => setSelected(null)} actions={<>
       <Link className="self-center text-sm text-brand-300 underline mr-2" to={current.snapshot.targetUrl} onClick={() => setSelected(null)}>{t('Open source record')}</Link>

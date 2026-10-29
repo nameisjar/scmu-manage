@@ -17,7 +17,7 @@ test('one-form BL creation persists real linked receiving job, pending sea leg, 
  assert.equal(state.jobs[0].jobType,'RECEIVER');assert.equal(state.shipments[0].mode,'SEA');assert.equal(state.shipments[0].status,'PENDING');assert.equal(state.shipments[0].carrierId,undefined);
  assert.equal(state.documents.length,1);assert.equal(result.internalStatus,'SEA_UNCHECKED');assert.equal(result.releaseStatus,'SEA_RELEASE_PENDING');assert.equal(result.receiptStatus,'SEA_NOT_RECEIVED');
  await assert.rejects(register.create(tx,{id:'staff'},body),/already/);assert.equal(state.jobs.length,1);
- await assert.rejects(register.create(tx,{id:'staff'},{containers:[]}),/BL number/);assert.equal(state.jobs.length,1);
+ const draft=await register.create(tx,{id:'staff'},{containers:[]});assert.equal(draft.billNumber,null);assert.equal(draft.registerIdentity,null);assert.equal(draft.workflow.matching,undefined);assert.equal(state.jobs.length,2);
 });
 test('operations update is optimistic, audited, keyed by container number and does not invalidate matched BL',async()=>{
  const {tx,state}=store();let row=await register.create(tx,{id:'staff'},{billNumber:'B',containers:[{number:'A',size:'20'},{number:'B',size:'40'}]});
@@ -106,16 +106,16 @@ test('legacy BL editing preserves operational JSON without making operations mat
   assert.deepEqual(snapshot.containers,[{number:'BOX1',seal:'s'}]);
 });
 
-test('B/L workspace transcribes variable packing formats and reports document differences without rewriting source identity',()=>{
+test('B/L workspace transcribes variable packing formats and keeps source details independent without rewriting source identity',()=>{
  const workspace=require('../src/services/blWorkspace');
  const bill={containers:[{number:'SPNU1',seal:'SEAL-BL',size:'40'}],files:[{id:'pl',category:'PACKING_LIST'}],packages:2,volumeCbm:require('../src/services/jpt').money('0.3000')};
  const operational=workspace.normalizeOperational({packing:{status:'CONFIRMED',headerStatus:'READY',headerNumber:'KPL-1',sourceFileIds:['pl'],groups:[{sourceFileId:'pl',containerNumber:'SPNU1',sealNumber:'SEAL-PL',size:'40',recipientName:'Penerima Demo',items:[{description:'Paket demo',quantity:'2',packages:2,volumeCbm:'0.3000'}]}]},deadlines:{storageUntil:'2026-04-23',demurrageFrom:'2026-05-02'},unloading:{status:'PENDING'}},bill);
- const checked=workspace.reconciliation(bill,operational);
- assert.equal(operational.packing.groups[0].items[0].description,'Paket demo');assert.equal(checked.status,'MISMATCH');assert.ok(checked.issues.includes('SEAL_DIFFERENCE'));assert.equal(bill.containers[0].seal,'SEAL-BL');
+ assert.equal(workspace.reconciliation,undefined);
+ assert.equal(operational.packing.groups[0].items[0].description,'Paket demo');assert.equal(operational.packing.groups[0].sealNumber,'SEAL-PL');assert.equal(bill.containers[0].seal,'SEAL-BL');
 });
 
 test('B/L workspace requires manual confirmation evidence and discrepancy notes',()=>{
  const workspace=require('../src/services/blWorkspace');const bill={containers:[{number:'C1'}],files:[],packages:0,volumeCbm:0};
- assert.throws(()=>workspace.normalizeOperational({packing:{status:'CONFIRMED',sourceFileIds:[],groups:[]},unloading:{status:'PENDING'}},bill),/Attach and transcribe/);
+ assert.throws(()=>workspace.normalizeOperational({packing:{status:'CONFIRMED',sourceFileIds:[],groups:[]},unloading:{status:'PENDING'}},bill),/Pilih minimal satu PL mitra/);
  assert.throws(()=>workspace.normalizeOperational({packing:{status:'DRAFT',sourceFileIds:[],groups:[]},unloading:{status:'DISCREPANCY',inspectedAt:'2026-10-26',staffName:'Admin'}},bill),/Explain/);
 });
