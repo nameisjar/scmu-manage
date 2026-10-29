@@ -15,7 +15,7 @@ async function invalidateShared(tx,user,bill){
 }
 function summarize(bills,number){
  fail(bills.length&&bills.length<=40,'Pilih maksimal 40 B/L.');const first=bills[0];
- if(bills.length>1)fail(first.voyageId&&bills.every(b=>b.voyageId===first.voyageId&&b.vesselId===first.vesselId),'Untuk rekap beberapa B/L, tautkan semuanya ke master kapal dan periode voyage yang sama.');
+ if(bills.length>1)fail(first.journeyId&&bills.every(b=>b.journeyId===first.journeyId)||first.voyageId&&bills.every(b=>b.voyageId===first.voyageId&&b.vesselId===first.vesselId),'Untuk rekap beberapa B/L, tautkan semuanya ke master kapal dan periode voyage yang sama.');
  const rows=[];const details=[];const warnings=[];
  for(const bill of bills){
 

@@ -4,6 +4,7 @@ const { Prisma } = require('@prisma/client');
 const json = value => JSON.parse(JSON.stringify(value));
 const CARGO_SELECT = { id: true, jobId: true, direction: true, recordNumber: true, externalNumber: true, senderName: true, recipientName: true, packages: true, grossWeightKg: true, volumeCbm: true };
 const seaInclude = {
+  journey: { select: { id:true,number:true,vesselName:true,voyageNumber:true,archivedAt:true,deletedAt:true } },
   shipment: { select: { id: true, jobId: true, shipmentNumber: true, mode: true, status: true, carrierId:true, originCity:true, destCity:true, vesselFlight: true, containerNumber: true, sealNumber: true } },
   allocations: { orderBy: { packingListId: 'asc' }, include: { packingList: { select: CARGO_SELECT } } },
   files: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
@@ -120,13 +121,13 @@ async function history(tx, user, billId, action, note, metadata = {}) {
   if (user?.id) await audit(tx, user, action, 'JobOrder', bill.jobId, { ...metadata, seaBillId: billId, version: bill.version });
   return getBill(tx, bill.jobId, billId, undefined, false);
 }
-async function registerIdentity(tx, billNumber, before) {
+async function registerIdentity(tx, billNumber, before, conflictMessage = 'This BL number is already registered') {
   const identity = billNumber ? text(billNumber, 'BL number', 100).toUpperCase() : null;
   // Unchanged historical duplicates are grandfathered, never backfilled destructively.
   if (before && identity === (before.billNumber?.trim().toUpperCase() || null)) return before.registerIdentity ?? null;
   if (identity) {
-    const found = await tx.seaBill.findFirst({ where: { billNumber: { equals: billNumber.trim(), mode: 'insensitive' }, ...(before?.id ? { id: { not: before.id } } : {}) } });
-    fail(!found, 'This BL number is already registered', 409);
+    const found = await tx.seaBill.findFirst({ where: require('./registerLifecycle').currentNumberWhere(billNumber, before?.id) });
+    fail(!found, conflictMessage, 409);
   }
   return identity;
 }

@@ -569,6 +569,7 @@ model JobOrder {
   packingHeader   PackingHeader?
   approvals       DirectorApproval[]
   seaBills        SeaBill[]
+  journeyCosts    ShippingJourney? @relation("JourneyCosts")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -773,6 +774,51 @@ model Voyage {
   @@map("voyages")
 }
 
+model ShippingJourney {
+  id String @id @default(uuid())
+  number String @unique
+  activeKey String? @unique
+  vesselId String?
+  voyageId String?
+  vesselName String?
+  voyageNumber String?
+  period String?
+  destination String?
+  departureDate DateTime?
+  arrivalDate DateTime?
+  notes String?
+  data Json @default("{}")
+  version Int @default(1)
+  archivedAt DateTime?
+  deletedAt DateTime?
+  createdById String?
+  sharedJobId String? @unique
+  sharedJob JobOrder? @relation("JourneyCosts", fields: [sharedJobId], references: [id], onDelete: Restrict)
+  bills SeaBill[]
+  files JourneyFile[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([vesselId, voyageId])
+  @@index([deletedAt, archivedAt])
+  @@map("shipping_journeys")
+}
+
+model JourneyFile {
+  id String @id @default(uuid())
+  journeyId String
+  journey ShippingJourney @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  category String
+  filename String
+  originalName String
+  mimeType String
+  size Int
+  note String?
+  uploadedById String?
+  createdAt DateTime @default(now())
+  @@index([journeyId, createdAt])
+  @@map("journey_files")
+}
+
 model BLImportSession {
   id           String @id @default(uuid())
   filename     String @unique
@@ -790,6 +836,8 @@ model BLImportSession {
 
 model SeaBill {
   id              String @id @default(uuid())
+  journeyId       String?
+  journey         ShippingJourney? @relation(fields: [journeyId], references: [id], onDelete: Restrict)
   registerNumber  String? @unique
   registerData    Json @default("{}")
   // Neutral book nominal: never an invoice, charge, revenue, cost, or payment.
@@ -848,6 +896,7 @@ model SeaBill {
 
   @@index([jobId, shipmentId])
   @@index([vesselId, voyageId])
+  @@index([journeyId])
   @@map("sea_bills")
 }
 

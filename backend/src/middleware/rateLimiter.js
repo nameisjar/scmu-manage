@@ -38,4 +38,5 @@ const uploadLimiter = rateLimit({
   message: { message: 'Upload limit reached, please try again later.' },
 });
 
-module.exports = { apiLimiter, authLimiter, uploadLimiter, createApiLimiter, createAuthLimiter };
+const batchUploadLimiter=rateLimit({windowMs:60*60*1000,max:120,standardHeaders:true,legacyHeaders:false,keyGenerator:req=>String(req.user.id),message:{message:'Batas unggah massal tercapai. Coba lagi nanti.'}});
+module.exports = { apiLimiter, authLimiter, uploadLimiter, batchUploadLimiter, createApiLimiter, createAuthLimiter };

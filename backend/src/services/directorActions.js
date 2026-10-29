@@ -62,6 +62,7 @@ async function loadAction(tx, action, entityId, body = {}) {
     payload = { actualAmount: decimal(body.actualAmount ?? raw.estimatedAmount.toString()).toFixed(2) };
     if(raw.tariffSnapshot) {
       fail(money(payload.actualAmount).eq(raw.tariffSnapshot.line.amount), 'Tariff snapshot amount cannot be overridden; propose an explicit adjustment separately',409);
+      if(raw.tariffSnapshot.journeyId){const journey=await tx.shippingJourney.findUnique({where:{id:raw.tariffSnapshot.journeyId}});fail(journey&&!journey.deletedAt&&!journey.archivedAt,'Pengiriman induk tidak aktif.',409);raw={...raw,journeyContext:{id:journey.id,number:journey.number,vesselName:journey.vesselName,voyageNumber:journey.voyageNumber,period:journey.period}};targetUrl=`/shipments/${journey.id}`;}
       if(raw.tariffSnapshot.billId) {
         const bill=await tx.seaBill.findUnique({where:{id:raw.tariffSnapshot.billId},select:{id:true,billNumber:true,carrierName:true,containers:true,registerData:true}});
         fail(bill,'Linked BL no longer exists',409);
@@ -72,7 +73,7 @@ async function loadAction(tx, action, entityId, body = {}) {
         targetUrl = `/bl-register/${bill.id}`;
       }
     }
-    overview = [...basics(job), ...fields([['Charge type', raw.kind], ['Description', raw.description], ['Cost source', raw.costSource], ['Cost category', raw.costCategory], ['Vendor', raw.vendor?.name], ['Estimated amount', raw.estimatedAmount], ['Proposed actual amount', payload.actualAmount], ['Notes', raw.notes]])];
+    overview = [...basics(job), ...fields([['Pengiriman',raw.journeyContext?.number],['Kapal',raw.journeyContext?.vesselName],['Voyage',raw.journeyContext?.voyageNumber],['Periode',raw.journeyContext?.period],['Charge type', raw.kind], ['Description', raw.description], ['Cost source', raw.costSource], ['Cost category', raw.costCategory], ['Vendor', raw.vendor?.name], ['Estimated amount', raw.estimatedAmount], ['Proposed actual amount', payload.actualAmount], ['Notes', raw.notes]])];
   } else if (action === 'VENDOR_AWARD') {
     const quote = await tx.quote.findUnique({ where: { id: entityId }, include: { transporter: true } }); fail(quote, 'Quote not found', 404);
     const rfq = await tx.rFQ.findUnique({ where: { id: quote.rfqId }, include: { quotes: { include: { transporter: { select: { name: true } } }, orderBy: { id: 'asc' } } } });

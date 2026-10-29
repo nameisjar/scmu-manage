@@ -41,6 +41,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/portal', (req, res) => res.status(404).json({ message: 'Customer portal is no longer available' }));
 app.use('/api', authenticate);
 app.use('/api/bl-register', require('./src/routes/blRegister'));
+app.use('/api/journeys', require('./src/routes/journeys'));
 app.use('/api/vessels', require('./src/routes/vessels'));
 app.use('/api/bl-imports', require('./src/routes/blImports'));
 app.use('/api/operations', require('./src/routes/operations'));

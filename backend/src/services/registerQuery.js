@@ -4,12 +4,13 @@ const {calendarDate}=require('./registerFields');
 const sea=require('./seaBills');
 const SORTS=['registerNumber','vesselName','voyageNumber','billNumber','portOfLoading','createdAt','registerAmount'];
 const hasBL={AND:[{OR:[{document:{filename:{not:null}}},{files:{some:{category:{in:['DRAFT','FINAL','LEGACY']}}}}]},{OR:[{registerData:{path:['documentState','blMissing'],equals:Prisma.AnyNull}},{registerData:{path:['documentState','blMissing'],equals:false}}]}]};
-const hasPacking={OR:[{files:{some:{category:{in:['PACKING_LIST','INTERNAL_PACKING_LIST']}}}},{allocations:{some:{packingList:{document:{filename:{not:null}}}}}}]};
+const hasPacking={OR:[{files:{some:{category:'INTERNAL_PACKING_RECAP',note:{startsWith:'Rekap Packing List kapal;'}}}},{files:{some:{category:{in:['PACKING_LIST','INTERNAL_PACKING_LIST']}}}},{allocations:{some:{packingList:{document:{filename:{not:null}}}}}}]};
 const pattern=value=>`%${value.replace(/[\\%_]/g,'\\$&')}%`;
 async function registerQuery(tx,query={}) {
- const archived=choice(query.archived||'active',['active','archived','all'],'Archive filter');
+ const archived=choice(query.archived||'active',['active','archived','all','trash'],'Archive filter');
  const active={AND:[{archivedAt:null},{OR:[{registerData:{path:['archivedAt'],equals:Prisma.AnyNull}},{registerData:{path:['archivedAt'],equals:''}}]}]};
- const archiveWhere=archived==='all'?{}:archived==='active'?active:{NOT:active};
+ const lifecycle=require('./registerLifecycle');
+ const archiveWhere=archived==='trash'?lifecycle.trashed:{AND:[lifecycle.notTrashed,...(archived==='all'?[]:[archived==='active'?active:{NOT:active}])]};
  const and=[archiveWhere];
  if(query.vesselId)and.push({vesselId:text(query.vesselId,'Kapal',100)});
  if(query.voyageId)and.push({voyageId:text(query.voyageId,'Voyage',100)});

@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Truck, PackageOpen, Files, Wallet, Archive, Save } from 'lucide-react';
 import api from '../../api/client';
 import { Button, Modal } from '../../components/common';
@@ -14,7 +14,7 @@ import TariffEstimator from './TariffEstimator';
 import { OperationalWorkspace, OperationalCosts } from './BLWorkspacePanels';
 import DriverBons from './DriverBons';
 import ShipmentProgress from './ShipmentProgress';
-import { isRegisterArchived } from './registerModel.mjs';
+import { isRegisterArchived, isRegisterDeleted } from './registerModel.mjs';
 
 const sections = [
   { value: 'summary', label: 'Ringkasan', icon: LayoutDashboard, tabs: ['summary'] },
@@ -50,9 +50,9 @@ export default function BLWorkspace({ bill: initialBill }) {
   };
   return <div className="bl-detail-page">
     <BLPageHeader bill={bill} onEdit={() => { setEditorState({ saving: false, conflict: false }); setEditing(true); }} />
-    <div className="bl-workspace-body"><ShipmentProgress bill={bill}/>
+    <div className="bl-workspace-body">{!isRegisterDeleted(bill)&&<ShipmentProgress bill={bill}/>}
       {success && <p role="status" className="rounded-lg border border-emerald-600/30 bg-emerald-500/5 px-4 py-3 mb-5 text-sm text-emerald-400">{t(success)}</p>}
-      {archived && <div className="bl-archived-notice"><Archive size={17} />{t('Register diarsipkan: hanya baca. Pulihkan dari daftar untuk mengubah data.')}</div>}
+      {archived && <div className="bl-archived-notice"><Archive size={17} />{isRegisterDeleted(bill)?<div><p>{t('Pengiriman berada di Sampah dan hanya dapat dibaca. Pulihkan untuk mengubah data.')}</p><p className="text-sm mt-1">{t('Alasan penghapusan')}: {bill.trash?.reason||bill.registerData?.trash?.reason}</p><Link className="text-brand-500 underline" to="/bl-register/trash">{t('Buka Sampah')}</Link></div>:t('Register diarsipkan: hanya baca. Pulihkan dari daftar untuk mengubah data.')}</div>}
       <nav className="bl-primary-tabs" role="tablist" aria-label={t('Bagian pengiriman')} data-bl-tabs>
         {sections.map((s, index) => <button key={s.value} id={id + '-tab-' + s.value} role="tab" type="button" aria-selected={primary.value === s.value} tabIndex={primary.value === s.value ? 0 : -1} aria-controls={id + '-panel'} onClick={() => setTab(s.value)} onKeyDown={event => keyTabs(event, index)}><s.icon size={16} />{t(s.label)}</button>)}
       </nav>

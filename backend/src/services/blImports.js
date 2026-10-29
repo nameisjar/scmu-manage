@@ -15,7 +15,7 @@ async function prepare(tx,user,file) {
  const extracted = require('./blParser').parse(document);
  const hash = createHash('sha256').update(await fs.readFile(file.path)).digest('hex');
  const match=await require('./vessels').match(tx,extracted.fields.vesselName,extracted.fields.voyageNumber);
- const duplicate=extracted.fields.billNumber?await tx.seaBill.findFirst({where:{registerIdentity:extracted.fields.billNumber.toUpperCase()},select:{id:true,billNumber:true}}):null;
+ const duplicate=extracted.fields.billNumber?await tx.seaBill.findFirst({where:require('./registerLifecycle').currentNumberWhere(extracted.fields.billNumber),select:{id:true,billNumber:true}}):null;
  const session = await tx.bLImportSession.create({data:{filename:file.filename,originalName:file.originalname,mimeType:file.mimetype,size:file.size,hash,createdById:user.id,extracted,expiresAt:new Date(Date.now()+86400000)}});
  return {id:session.id,originalName:session.originalName,expiresAt:session.expiresAt,...extracted,match,duplicate};
 }

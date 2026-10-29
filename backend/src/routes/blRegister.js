@@ -28,6 +28,9 @@ router.post('/',route(async(req,res)=>{
 }));
 router.put('/:id',route(async(req,res)=>res.json(await transaction(tx=>require('../services/blImports').save(tx,req.user,req.params.id,req.body)))));
 router.post('/:id/archive',route(async(req,res)=>res.json(await transaction(tx=>register.archive(tx,req.user,req.params.id,req.body)))));
+router.get('/:id/deletion-context',route(async(req,res)=>res.json(await transaction(tx=>require('../services/shipmentTrash').context(tx,req.user,req.params.id)))));
+router.delete('/:id',route(async(req,res)=>res.json(await transaction(tx=>require('../services/shipmentTrash').remove(tx,req.user,req.params.id,req.body)))));
+router.post('/:id/restore',route(async(req,res)=>res.json(await transaction(tx=>require('../services/shipmentTrash').restore(tx,req.user,req.params.id,req.body)))));
 router.post('/:id/estimate',route(async(req,res)=>res.json(await transaction(tx=>register.estimate(tx,req.params.id,req.body)))));
 router.post('/:id/charges',route(async(req,res)=>res.status(201).json(await transaction(tx=>register.charges(tx,req.user,req.params.id,req.body)))));
 module.exports=router;

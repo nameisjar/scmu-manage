@@ -2,7 +2,7 @@ const { fail, text, integer, audit } = require('./jpt');
 const { calendarDate } = require('./registerFields');
 const vesselKey = value => String(value || '').trim().toUpperCase().replace(/^(?:KM|K\.M\.|MV|M\.V\.)[\s.]+/, '').replace(/[^A-Z0-9]/g, '');
 const voyageKey = value => String(value || '').trim().toUpperCase().replace(/^(?:VOYAGE|VOY|V)[\s.:]+/, '').replace(/[^A-Z0-9]/g, '');
-const include = { aliases: { orderBy: { name: 'asc' } }, _count: { select: { voyages: true, bills: true } } };
+const include = { aliases: { orderBy: { name: 'asc' } }, _count: { select: { voyages: true, bills: { where: require('./registerLifecycle').notTrashed } } } };
 async function get(tx,id) { const row=await tx.vessel.findUnique({where:{id},include});fail(row,'Kapal tidak ditemukan.',404);return row; }
 async function save(tx,user,id,body) {
   const before=id?await get(tx,id):null;

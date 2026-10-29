@@ -37,7 +37,8 @@ export default function RegisterForm({ initial, onSaved, formId, hideActions = f
       const id = response.data.id || response.data.data?.id || form.id;
       if (!id) throw Error('Register response is missing its identifier.');
       const confirmed = await api.get(`/bl-register/${id}`); setForm(structuredClone(confirmed.data)); setSuccess('Register berhasil disimpan.');
-      if (!form.id) navigate(`/bl-register/${id}`, { replace: true, state: { registerSaved: true } });
+      if (!form.id && onSaved) onSaved(confirmed.data);
+      else if (!form.id) navigate(`/bl-register/${id}`, { replace: true, state: { registerSaved: true } });
       else onSaved?.(confirmed.data);
     } catch (err) {
       const stale = err.response?.status === 409 && /changed|reload|version/i.test(err.response?.data?.message || '');
@@ -50,8 +51,8 @@ export default function RegisterForm({ initial, onSaved, formId, hideActions = f
     <Notice message={error} />
     {success && <p role="status" className="rounded-lg border border-emerald-600/40 bg-emerald-500/5 p-3 text-sm text-emerald-300">{t(success)}</p>}
     {isRegisterArchived(form) && <p role="status" className="text-amber-300 text-sm">{t('Register diarsipkan: hanya baca. Pulihkan dari daftar untuk mengubah data.')}</p>}
-    {!form.id && <p className="rounded-lg border border-brand-500/20 bg-brand-500/5 p-3 text-sm text-zinc-300">{t('Satu baris buku menjadi satu B/L terintegrasi. Dokumen dapat dilengkapi kemudian sesuai aturan mitra.')}</p>}
-    <BLImport form={form} disabled={disabled} onBusy={setReading} onApply={patch=>setForm(previous=>({...previous,...patch}))}/>
+    {!form.id && <p className="rounded-lg border border-brand-500/20 bg-brand-500/5 p-3 text-sm text-zinc-300">{t('Isi pengiriman secara manual. Nomor B/L dan dokumen dapat dilengkapi kemudian.')}</p>}
+    {form.id && <BLImport form={form} disabled={disabled} onBusy={setReading} onApply={patch=>setForm(previous=>({...previous,...patch}))}/>}
     <fieldset disabled={disabled} className="bl-form-group"><VesselPicker form={form} disabled={disabled} onChange={setForm}/></fieldset>
     <p className="rounded-lg bg-brand-500/5 p-3 text-sm">{t('Nomor B/L boleh kosong. Simpan pengiriman dan kumpulkan dokumen terlebih dahulu.')}</p>
     <Group title="Identitas pengiriman" disabled={disabled}>

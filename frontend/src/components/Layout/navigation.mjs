@@ -1,15 +1,18 @@
 const modules = {
+  shipments:'Pengiriman',
   vessels:'Kapal',
   'bl-register': 'Pengiriman', 'packing-lists':'Packing List', tariffs:'Tarif & Biaya', 'billing-tax':'Tagihan & Pajak', approvals:'Persetujuan Direktur', partners:'Mitra/JPT', users: 'User Management', settings: 'Settings',
 };
 export function pageLabel(url) {
   const [module, id] = url.split('?')[0].split('/').filter(Boolean);
   if (!module) return 'Dashboard';
+  if (module === 'bl-register' && id === 'trash') return 'Sampah pengiriman';
   if (id && id !== 'new') return modules[module];
   return modules[module] || 'Dashboard';
 }
 export function detailModule(pathname) {
-  return /^\/(bl-register|vessels)\/[^/]+(?:\/voyages\/[^/]+)?\/?$/.exec(pathname)?.[1] || null;
+  if (/^\/bl-register\/trash\/?$/.test(pathname)) return null;
+  const module=/^\/(bl-register|vessels|shipments)\/[^/]+(?:\/voyages\/[^/]+)?\/?$/.exec(pathname)?.[1];return module==='shipments'?'bl-register':module||null;
 }
 export function localPage(url) {
   if (typeof url !== 'string' || !url.startsWith('/') || url.startsWith('//') || /[\\\r\n]/.test(url)) return false;

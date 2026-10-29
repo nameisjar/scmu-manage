@@ -8,6 +8,7 @@ import PartnerPackingSummary from './PartnerPackingSummary';
 import {useBL} from '../../i18n/bl.mjs';
 import {isRegisterArchived} from './registerModel.mjs';
 import {printInternalPacking} from './internalPackingPrint.mjs';
+import {printVoyagePacking} from './voyagePackingPrint.mjs';
 export default function RegisterDocuments({bill,onVersion}) {
  const {t}=useBL();const resource=useResource(bill.id?`/bl-register/${bill.id}/files`:null);
  const [file,setFile]=useState(null);const [category,setCategory]=useState('FINAL');const [note,setNote]=useState('');
@@ -49,7 +50,7 @@ export default function RegisterDocuments({bill,onVersion}) {
  const refresh=async()=>{setBusy(true);try{await onVersion?.();resource.update((await api.get(`/bl-register/${bill.id}/files`)).data);setDeleting(null);setReason('');setConflict(false);setError('');}catch(err){setError(err.response?.data?.message||err.message);}finally{setBusy(false);}};
  const download=async row=>{setError('');try{const response=await api.get(`/bl-register/${bill.id}/files/${row.id}`,{responseType:'blob'});const url=URL.createObjectURL(response.data);const link=document.createElement('a');link.href=url;link.download=row.originalName||'dokumen';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){setError(error.response?.data?.message||error.message);}};
  const downloadSelected=async()=>{if(!chosen.length||busy)return;setBusy(true);setError('');try{if(one)await download(one);else{const response=await api.post(`/bl-register/${bill.id}/files/download`,{fileIds:chosen.map(row=>row.id)},{responseType:'blob',timeout:60000});const url=URL.createObjectURL(response.data);const link=document.createElement('a');link.href=url;link.download='dokumen-pengiriman.zip';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}catch(e){setError(e.response?.data?.message||e.message);}finally{setBusy(false);}};
- const printSelected=async()=>{if(!one||busy)return;setBusy(true);setError('');try{const response=await api.get(`/bl-register/${bill.id}/files/${one.id}/packing-output`);printInternalPacking(response.data);}catch(e){setError(e.response?.data?.message||e.message);}finally{setBusy(false);}};
+ const printSelected=async()=>{if(!one||busy)return;setBusy(true);setError('');try{const response=await api.get(`/bl-register/${bill.id}/files/${one.id}/packing-output`);if(response.data.kind==='VOYAGE_PACKING')printVoyagePacking(response.data);else printInternalPacking(response.data);}catch(e){setError(e.response?.data?.message||e.message);}finally{setBusy(false);}};
  return <section className="card p-5 space-y-4" data-register-documents>
   <h2 className="font-semibold">{t('Dokumen pengiriman')}</h2><p className="text-sm text-zinc-400">{t('Semua dokumen dikelola langsung dari B/L ini. Kebutuhan Packing List mengikuti aturan mitra; penambahan file tidak membuat register baru dan tidak menghapus riwayat sebelumnya.')}</p>
   <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">{[
@@ -77,16 +78,16 @@ export default function RegisterDocuments({bill,onVersion}) {
    <span role="status" className="text-sm text-zinc-400 mr-auto">{chosen.length} {t('dokumen dipilih')}</span>
    <Button type="button" size="sm" variant="secondary" disabled={!one||busy} onClick={()=>setPreview(one)}>{t('View')}</Button>
    <Button type="button" size="sm" variant="secondary" disabled={!chosen.length||busy} onClick={downloadSelected}>{t(chosen.length>1?'Unduh ZIP':one?.category==='INTERNAL_PACKING_LIST'&&/\.xlsx$/i.test(one.originalName)?'Unduh Excel':'Unduh asli')}</Button>
-   <Button type="button" size="sm" variant="secondary" disabled={!one||one.category!=='INTERNAL_PACKING_LIST'||busy} onClick={printSelected}>{t('Cetak / Simpan PDF')}</Button>
+   <Button type="button" size="sm" variant="secondary" disabled={!one||!(one.category==='INTERNAL_PACKING_LIST'||one.category==='INTERNAL_PACKING_RECAP'&&one.note?.startsWith('Rekap Packing List kapal;'))||busy} onClick={printSelected}>{t('Cetak / Simpan PDF')}</Button>
    <Button type="button" size="sm" variant="secondary" disabled={!one||one.category!=='PACKING_LIST'||busy} onClick={()=>setSummaryFile(one)}>{t('Ringkasan PL')}</Button>
    <Button type="button" size="sm" variant="danger" disabled={!chosen.length||busy||conflict||isRegisterArchived(bill)} onClick={()=>{setError('');setReason('');setDeleting(chosen);}}>{t('Hapus lampiran')}</Button>
   </div>
-  <p className="text-xs text-zinc-500">{t('Pilih satu dokumen untuk melihat. PDF tersedia untuk PL internal yang dibuat sistem. Beberapa dokumen diunduh sebagai ZIP.')}</p>
+  <p className="text-xs text-zinc-500">{t('Pilih satu dokumen untuk melihat. PDF tersedia untuk PL internal dan rekap kapal yang dibuat sistem. Beberapa dokumen diunduh sebagai ZIP.')}</p>
   <DataTable rows={rows.map((row,index)=>({...row,rowNumber:index+1}))} resetKey={bill.id} empty="Belum ada dokumen pada B/L ini." columns={[
    {key:'selected',label:t('Pilih'),className:'sticky left-0 bg-white w-12',render:row=><input type="checkbox" aria-label={`${t('Pilih dokumen')} ${row.originalName}`} checked={selected.includes(row.id)} disabled={busy} onChange={()=>toggle(row.id)}/>},
    {key:'rowNumber',label:'No.',className:'w-12 tabular-nums'},
    {key:'originalName',label:t('File dokumen'),className:'min-w-64 max-w-sm whitespace-normal break-words',render:row=><div>{row.originalName}{row.category==='PACKING_LIST'&&<small className="block text-zinc-500 mt-1">{t(bill.registerData?.partnerPackingSummaries?.[row.id]?'File tersimpan · ringkasan siap':(bill.registerData?.operational?.packing?.groups||[]).some(g=>g.sourceFileId===row.id)?'File tersimpan ? rincian disiapkan':'File tersimpan ? rincian belum disiapkan')}</small>}</div>},
-   {key:'category',label:t('Kategori dokumen'),render:row=>t(({DRAFT:'B/L draft',FINAL:'B/L final',PACKING_LIST:'Packing List mitra',INTERNAL_PACKING_LIST:'Packing List internal',PACKING_HEADER:'Kepala Packing List',RECEIVING_REPORT:'Berita Acara',INVOICE:'Invoice/tagihan',DELIVERY_ORDER:'Delivery Order (DO)',MANIFEST:'Manifest',WAYBILL:'Surat jalan',POD:'Bukti serah terima/POD',TAX_INVOICE:'Faktur pajak',PPH23_CERTIFICATE:'Bukti potong PPh 23',DRIVER_BON:'Bonrate sopir',SUPPORTING:'Dokumen pendukung'})[row.category]||row.category)},{key:'createdAt',label:t('Date'),render:row=>row.createdAt?.slice(0,10)||'?'},
+   {key:'category',label:t('Kategori dokumen'),render:row=>t(({DRAFT:'B/L draft',FINAL:'B/L final',PACKING_LIST:'Packing List mitra',INTERNAL_PACKING_LIST:'Packing List internal',INTERNAL_PACKING_RECAP:'Rekap Packing List internal',PACKING_HEADER:'Kepala Packing List',RECEIVING_REPORT:'Berita Acara',INVOICE:'Invoice/tagihan',DELIVERY_ORDER:'Delivery Order (DO)',MANIFEST:'Manifest',WAYBILL:'Surat jalan',POD:'Bukti serah terima/POD',TAX_INVOICE:'Faktur pajak',PPH23_CERTIFICATE:'Bukti potong PPh 23',DRIVER_BON:'Bonrate sopir',SUPPORTING:'Dokumen pendukung'})[row.category]||row.category)},{key:'createdAt',label:t('Date'),render:row=>row.createdAt?.slice(0,10)||'?'},
    {key:'note',label:t('Catatan dokumen'),className:'min-w-48 max-w-sm whitespace-normal break-words'},
   ]}/>
   {summaryFile&&<PartnerPackingSummary bill={bill} file={summaryFile} onClose={()=>setSummaryFile(null)} onSaved={async()=>{await onVersion?.();resource.reload();}}/>}

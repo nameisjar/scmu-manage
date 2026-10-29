@@ -1,5 +1,5 @@
 export function registerPayload(form) {
-  const keys = ['version', 'billNumber', 'carrierName', 'vesselName', 'voyageNumber', 'portOfLoading', 'portOfDischarge', 'shipperName', 'consigneeName', 'notes', 'revisionNote','vesselId','voyageId','issueDate','onBoardDate','notifyPartyName','grossWeightKg','importSessionId','importConfirmed','importCategory'];
+  const keys = ['journeyId','version', 'billNumber', 'carrierName', 'vesselName', 'voyageNumber', 'portOfLoading', 'portOfDischarge', 'shipperName', 'consigneeName', 'notes', 'revisionNote','vesselId','voyageId','issueDate','onBoardDate','notifyPartyName','grossWeightKg','importSessionId','importConfirmed','importCategory'];
   const registerKeys = ['dateMeaning','departureDate','arrivalDate','quantity20','quantity21','quantity40','cargoDescription','partyName','partyText','reference1','reference2','additionalDate1','additionalDate2','additionalNotes','documentPolicy','includeInPackingHeader','billingStatus','pph23Applicable'];
   const register = { ...Object.fromEntries(registerKeys.filter(key=>form.register?.[key]!==undefined).map(key=>[key,form.register[key]])), dateMeaning: form.register?.dateMeaning || 'UNCONFIRMED' };
   for (const key of ['quantity20','quantity21','quantity40']) {
@@ -12,7 +12,8 @@ export function registerPayload(form) {
   if (amount !== '' && amount !== null && amount !== undefined && (typeof amount !== 'string' || !/^-?\d+(?:\.\d{1,2})?$/.test(amount))) throw Error('Nominal harus berupa teks desimal (maksimal dua angka desimal), tanpa pemisah ribuan.');
   return { ...Object.fromEntries(keys.filter(key => form[key] !== undefined).map(key => [key, form[key]])), ...(Array.isArray(form.containers)?{containers:form.containers}:{}), registerAmount: amount === '' || amount == null ? null : amount, register };
 }
-export function isRegisterArchived(row = {}) { return Boolean(row.archived || row.archivedAt || row.registerData?.archivedAt || row.register?.archivedAt); }
+export function isRegisterDeleted(row = {}) { return Boolean(row.deleted || row.trash?.deletedAt || row.registerData?.trash?.deletedAt); }
+export function isRegisterArchived(row = {}) { return Boolean(isRegisterDeleted(row) || row.archived || row.archivedAt || row.registerData?.archivedAt || row.register?.archivedAt); }
 export function registerDocumentAvailability(row = {}) {
  const flags = row.documentAvailability || row.availability || {};
  return { billOfLading: Object.hasOwn(flags,'billOfLading')?Boolean(flags.billOfLading):Boolean(row.documentSummary?.hasBL || row.document?.filename || ['SEA_FINAL_RECEIVED','SEA_DRAFT_RECEIVED'].includes(row.receiptStatus) || row.files?.some(file=>['DRAFT','FINAL'].includes(file.category))), packingList: Object.hasOwn(flags,'packingList')?Boolean(flags.packingList):Boolean(row.documentSummary?.hasPackingList || row.files?.some(file=>file.category==='PACKING_LIST') || row.allocations?.some(item=>item.packingList?.document?.filename)) };

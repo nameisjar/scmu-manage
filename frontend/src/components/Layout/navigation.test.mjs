@@ -8,6 +8,7 @@ test('return navigation accepts only internal SCMU pages, including filtered sou
   assert.equal(pageLabel('/bl-register?search=Merauke'), 'Pengiriman');
   assert.equal(detailModule('/bl-register/id'), 'bl-register');
   assert.equal(detailModule('/jobs'), null);
+  assert.equal(pageLabel('/bl-register/trash'),'Sampah pengiriman');assert.equal(detailModule('/bl-register/trash'),null);
 });
 test('malformed pagination falls back to the first page', () => {
   for (const value of [null,'0','-3','1.5','NaN','Infinity','9007199254740992']) assert.equal(positivePage(value),1);

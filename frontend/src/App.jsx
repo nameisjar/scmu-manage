@@ -2,12 +2,13 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout/Layout';
 import Login from './pages/Login';
-import BLRegister from './pages/BL/BLRegister';
+import Journeys from './pages/Shipments/Journeys';
+import JourneyDetail from './pages/Shipments/JourneyDetail';
 import Dashboard from './pages/Dashboard';
 import BLDetail from './pages/BL/BLDetail';
 import UserManagement from './pages/Users/UserManagement';
 import SettingsPage from './pages/Settings/SettingsPage';
-import PackingOverview from './pages/Operations/PackingOverview';
+import PackingOverview from './pages/Shipments/JourneyPackingOverview';
 import BillingTax from './pages/Operations/BillingTax';
 import TariffCosts from './pages/Operations/TariffCosts';
 import DirectorApprovals from './components/jpt/DirectorApproval';
@@ -29,8 +30,10 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Dashboard />} />
-        <Route path="bl-register" element={<BLRegister />} />
-        <Route path="bl-register/new" element={<BLDetail create />} />
+        <Route path="bl-register" element={<Journeys />} />
+        <Route path="bl-register/trash" element={<Journeys trash />} />
+        <Route path="bl-register/new" element={<Navigate to="/bl-register?create=1" replace />} />
+        <Route path="shipments/:id" element={<JourneyDetail />} />
         <Route path="bl-register/:id" element={<BLDetail />} />
         <Route path="packing-lists" element={<PackingOverview />} />
         <Route path="tariffs" element={<TariffCosts />} />

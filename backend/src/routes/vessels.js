@@ -17,11 +17,11 @@ router.put('/:id',route(async(req,res)=>res.json(await transaction(tx=>service.s
 router.get('/:id/voyages',route(async(req,res)=>{
  await service.get(prisma,req.params.id);const where={vesselId:req.params.id,...(req.query.active==='true'?{isActive:true}:{})};
  const total=await prisma.voyage.count({where});const meta=pageMeta(total,pageOptions(req.query));
- res.json({...meta,data:await prisma.voyage.findMany({where,include:{_count:{select:{bills:true}}},orderBy:[{period:'desc'},{number:'asc'},{id:'asc'}],skip:(meta.page-1)*meta.limit,take:meta.limit})});
+ res.json({...meta,data:await prisma.voyage.findMany({where,include:{_count:{select:{bills:{where:require('../services/registerLifecycle').notTrashed}}}},orderBy:[{period:'desc'},{number:'asc'},{id:'asc'}],skip:(meta.page-1)*meta.limit,take:meta.limit})});
 }));
 router.post('/:id/voyages',route(async(req,res)=>res.status(201).json(await transaction(tx=>service.saveVoyage(tx,req.user,req.params.id,null,req.body)))));
 router.put('/:id/voyages/:voyageId',route(async(req,res)=>res.json(await transaction(tx=>service.saveVoyage(tx,req.user,req.params.id,req.params.voyageId,req.body)))));
 router.get('/:id/voyages/:voyageId',route(async(req,res)=>{
- const row=await prisma.voyage.findUnique({where:{id:req.params.voyageId},include:{vessel:{include:{aliases:true}},_count:{select:{bills:true}}}});fail(row&&row.vesselId===req.params.id,'Voyage tidak ditemukan.',404);res.json(row);
+ const row=await prisma.voyage.findUnique({where:{id:req.params.voyageId},include:{vessel:{include:{aliases:true}},_count:{select:{bills:{where:require('../services/registerLifecycle').notTrashed}}}}});fail(row&&row.vesselId===req.params.id,'Voyage tidak ditemukan.',404);res.json(row);
 }));
 module.exports=router;

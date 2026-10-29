@@ -1,5 +1,5 @@
 import { useBL as useLanguage } from '../../i18n/bl.mjs';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { LayoutDashboard, ClipboardList, Users, LogOut, Settings, PackageOpen, Calculator, ReceiptText, UserCheck, Building2, Ship } from 'lucide-react';
 import Brand from '../common/Brand';
@@ -24,6 +24,7 @@ export default function Sidebar() {
   const { t: tr } = useLanguage();
   const { user, logout, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
+  const {pathname}=useLocation();
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -44,7 +45,7 @@ export default function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
         <p className="px-3 py-1 text-xs font-semibold text-zinc-600 uppercase tracking-wider mb-2">{tr("Operations")}</p>
         {NAV_ITEMS.map(({ to, label, icon: Icon, exact }) => (
-          <NavLink key={to} to={to} end={exact} className={linkClass}>
+          <NavLink key={to} to={to} end={exact} className={state=>linkClass({isActive:state.isActive||to==='/bl-register'&&pathname.startsWith('/shipments/')})}>
             <Icon size={16} className="flex-shrink-0" />
             <span>{tr(label)}</span>
           </NavLink>

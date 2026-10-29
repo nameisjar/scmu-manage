@@ -147,10 +147,10 @@ export function FormField({ label, required, children, error }) {
 }
 
 // PageHeader
-export function PageHeader({ title, subtitle, action }) {
+export function PageHeader({ title, subtitle, action, className = '' }) {
 
   return (
-    <div className="flex items-start justify-between mb-6">
+    <div className={`flex items-start justify-between mb-6 ${className}`}>
       <div>
         <h1 className="font-display text-2xl font-bold text-zinc-100">{title}</h1>
         {subtitle && <p className="text-zinc-400 text-sm mt-1">{subtitle}</p>}

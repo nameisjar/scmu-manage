@@ -60,9 +60,11 @@ async function vendor(tx, id) {
   return company.id;
 }
 async function mutableJob(tx, id) {
-  const job = await tx.jobOrder.findUnique({ where: { id } });
+  const job = await tx.jobOrder.findUnique({ where: { id }, include: { seaBills: { select: { registerData: true, journey: { select: { archivedAt: true, deletedAt: true } } } }, journeyCosts: { select: { archivedAt: true, deletedAt: true } } } });
   fail(job, 'Job order not found', 404);
   fail(!['CLOSED', 'CANCELLED'].includes(job.status), 'This job is already closed or cancelled', 409);
+  fail(!job.seaBills?.some(require('./registerLifecycle').isTrashed), 'Pengiriman berada di Sampah. Pulihkan sebelum mengubah data.', 409);
+  fail(!job.seaBills?.some(b=>b.journey?.archivedAt||b.journey?.deletedAt)&&!job.journeyCosts?.archivedAt&&!job.journeyCosts?.deletedAt,'Pengiriman induk di arsip/Sampah hanya dapat dibaca.',409);
   return job;
 }
 

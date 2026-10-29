@@ -12,6 +12,7 @@ try {
  const html=render(React.createElement(RegisterForm));
  for(const label of ['Vendor/JPT','Pihak penanggung jawab','Nomor internal','Nomor invoice','Tanggal invoice','Jatuh tempo','Catatan tambahan','Jumlah 20','Jumlah 21','Jumlah 40','Jumlah tagihan','Status tagihan','Aturan dokumen mitra','Simpan pengiriman'])assert.ok(html.includes(label),'Unified form missing '+label);
  assert.equal((html.match(/<form/g)||[]).length,1,'All manual fields share a single form');
+ assert.ok(!html.includes('data-bl-import'),'Manual creation must not offer a separate competing upload flow');
  const required=[...html.matchAll(/<input[^>]*required=""[^>]*>/g)].map(match=>match[0]);assert.equal(required.length,0,'Draft shipment must not require a B/L number');
  assert.ok(!html.includes('Nomor register'),'Internal register identity must not be visible');
  assert.ok(html.includes('21 berasal dari daftar tarif'),'Unconfirmed 21 header caveat');
@@ -20,6 +21,8 @@ try {
  for(const text of ['Pengiriman','Filter lainnya','Kelengkapan dokumen','Urutan','Ekspor','B/L &amp; Mitra','Kapal &amp; Voyage','Kontainer','Keluar / Masuk','Dokumen'])assert.ok(list.includes(text),'Summary list missing '+text);
  assert.ok(!list.includes('Nomor register'));assert.ok(!list.includes('Piutang'));assert.ok(list.includes('data-register-view="summary"'));assert.ok(!list.includes('data-column="registerAmount"'),'Financial detail should not crowd summary');
  assert.ok(!list.includes('data-table-toolbar'));assert.ok(!list.includes('data-column="__selection"'));assert.ok(!list.includes('>Rinci</button>'));assert.ok(!list.includes('>Kolom</button>'));
+ assert.equal((list.match(/>Tambah pengiriman<\/button>/g)||[]).length,1,'Shipments has one create entry');assert.ok(!list.includes('Unggah dokumen sekaligus'));
+ const trash=render(React.createElement(List,{trash:true}),'/bl-register/trash');for(const label of ['Sampah pengiriman','Tanggal dihapus','Dihapus oleh','Alasan penghapusan','Kembali ke Pengiriman'])assert(trash.includes(label),'Trash missing '+label);assert(!trash.includes('>Tambah pengiriman</button>'));assert(!trash.includes('>Rekap dari B/L</button>'));
  const {default:BLSummary}=await server.ssrLoadModule('/src/pages/BL/BLSummary.jsx');
  const summary=render(React.createElement(BLSummary,{bill:{id:'test',billNumber:'BL-DETAIL',grossWeightKg:0,notes:'NOTE-ORIGINAL',createdAt:'2026-04-01',updatedAt:'2026-04-02',register:{reference1:'REF-INTERNAL-TEST',reference2:'INV-TEST',additionalDate1:'2026-04-03',additionalDate2:'2026-04-04',quantity20:0,cargoDescription:'CARGO-TEST',additionalNotes:'NOTE-ADDITIONAL',documentPolicy:'BL_ONLY',includeInPackingHeader:false},registerAmount:'0.00'},onNavigate:()=>{}}));
  for(const text of ['REF-INTERNAL-TEST','INV-TEST','Tanggal invoice','Berat kotor (kg)','Informasi pencatatan','Terakhir diperbarui','NOTE-ORIGINAL','CARGO-TEST','NOTE-ADDITIONAL','Aturan dokumen mitra'])assert(summary.includes(text),'Detail missing '+text);assert(summary.includes('<dd>0</dd>'),'Known zero weight shown as missing');

@@ -4,10 +4,10 @@ const include = {...sea.seaInclude, document:true, allocations:{...sea.seaInclud
 const json = value => JSON.parse(JSON.stringify(value));
 function present(bill) {
  const data=normalize({},bill);
- return {...sea.present(bill),job:undefined,jobStatus:bill.job?.status,jobNumber:bill.job?.jobNumber,registerNumber:bill.registerNumber,...data,registerAmount:bill.registerAmount==null?null:new (require('@prisma/client').Prisma.Decimal)(bill.registerAmount).toFixed(2),amountMeaning:'UNCONFIRMED',archivedAt:bill.archivedAt||bill.registerData?.archivedAt||null,archivedById:bill.archivedById||bill.registerData?.archivedById||null,archived:Boolean(bill.archivedAt||bill.registerData?.archivedAt),documentAvailability:availability(bill),workflow:require('./shipmentWorkflow').status(bill),documentSummary:{internalStatus:bill.internalStatus,releaseStatus:bill.releaseStatus,receiptStatus:sea.receipt(bill)},dateWarning:data.register.dateMeaning==='UNCONFIRMED'?'Date meaning is unconfirmed; do not assume vessel, container, or document arrival.':null};
+ return {...sea.present(bill),job:undefined,jobStatus:bill.job?.status,jobNumber:bill.job?.jobNumber,registerNumber:bill.registerNumber,...data,deleted:require('./registerLifecycle').isTrashed(bill),registerAmount:bill.registerAmount==null?null:new (require('@prisma/client').Prisma.Decimal)(bill.registerAmount).toFixed(2),amountMeaning:'UNCONFIRMED',archivedAt:bill.archivedAt||bill.registerData?.archivedAt||null,archivedById:bill.archivedById||bill.registerData?.archivedById||null,archived:Boolean(bill.archivedAt||bill.registerData?.archivedAt),documentAvailability:availability(bill),workflow:require('./shipmentWorkflow').status(bill),documentSummary:{internalStatus:bill.internalStatus,releaseStatus:bill.releaseStatus,receiptStatus:sea.receipt(bill)},dateWarning:data.register.dateMeaning==='UNCONFIRMED'?'Date meaning is unconfirmed; do not assume vessel, container, or document arrival.':null};
 }
 function availability(bill) {
- const external=Boolean(bill.files?.some(row=>row.filename&&row.category==='PACKING_LIST')||bill.allocations?.some(row=>row.packingList?.document?.filename));const internal=require('./internalPacking').ready(bill);
+ const external=Boolean(bill.files?.some(row=>row.filename&&row.category==='PACKING_LIST')||bill.allocations?.some(row=>row.packingList?.document?.filename));const internal=require('./internalPacking').ready(bill)||require('./voyagePacking').available(bill);
  return {billOfLading:!bill.registerData?.documentState?.blMissing&&Boolean(bill.document?.filename || bill.files?.some(row=>row.filename&&['DRAFT','FINAL','LEGACY'].includes(row.category))),packingList:external||internal,externalPackingList:external,internalPackingList:internal,fieldInspection:require('./packingFieldChecks').status(bill),packingHeader:Boolean(bill.files?.some(row=>row.filename&&row.category==='PACKING_HEADER')),internalPackingRecap:require('./packingRecap').ready(bill),supporting:Boolean(bill.files?.some(row=>row.filename&&row.category==='SUPPORTING'))};
 }
 async function get(tx,id) {
@@ -24,6 +24,7 @@ async function create(tx,user,body) {
  const registerAmount=require('./registerFields').registerAmount(body.registerAmount);
  const identity=await registerNumber(tx,body.registerNumber);
  const links=await require('./vessels').links(tx,body);
+ const journey=await require('./journeys').forBill(tx,user,{...body,...links});
  const ops=normalize(body);const fields=sea.metadata({...body,billNumber,containers:ops.containers.map(({number,seal})=>({number,seal}))});
  await sea.registerIdentity(tx,billNumber);
  const owner=await customer(tx);
@@ -32,7 +33,8 @@ async function create(tx,user,body) {
  // an approved booking, or evidence of receipt/release. No carrier or freight is awarded.
  const shipment=await tx.shipment.create({data:{jobId:job.id,shipmentNumber:number('SHP'),mode:'SEA',transportSource:'EXTERNAL',status:'PENDING',shipperCompanyId:owner.id,originCity:job.originCity,destCity:job.destCity,originState:'Unconfirmed',destState:'Unconfirmed',loadingDate:new Date(),notes:'Preliminary BL register reference only; not an approved transport booking. Operational date meaning remains in the register.',createdById:user.id}});
  const bill=await sea.createBill(tx,user,job.id,{...fields,shipmentId:shipment.id});
- await tx.seaBill.update({where:{id:bill.id},data:{registerNumber:identity,registerIdentity:billNumber?.toUpperCase()||null,registerData:json({...ops,workflowVersion:2}),registerAmount,...links}});
+ await tx.seaBill.update({where:{id:bill.id},data:{registerNumber:identity,registerIdentity:billNumber?.toUpperCase()||null,registerData:json({...ops,workflowVersion:2}),registerAmount,...links,...(journey?{journeyId:journey.id}:{})}});
+ if(journey)await tx.shippingJourney.update({where:{id:journey.id},data:{version:{increment:1}}});
  await audit(tx,user,'BL_REGISTER_CREATED','JobOrder',job.id,{seaBillId:bill.id,register:ops,registerAmount:registerAmount?.toFixed(2)||null,registerNumber:identity});
  return present(await get(tx,bill.id));
 }
@@ -67,6 +69,7 @@ async function update(tx,user,id,body) {
  const registerIdentity=body.registerNumber===undefined?{}:{registerNumber:await registerNumber(tx,body.registerNumber,before)};
  await sea.getBill(tx,before.jobId,id,body.version);
  const links=await require('./vessels').links(tx,body,before);
+ if(before.journeyId){const parent=await tx.shippingJourney.findUnique({where:{id:before.journeyId}});require('./journeys').mutable(parent);fail(require('./journeys').compatible(parent,{...before,...body,...links}),'B/L identity differs from its vessel journey. Check the parent shipment.',409);}
  const ops=normalize(body,before);
  const recapHash=before.registerData?.internalRecap?.valid?require('./packingRecap').fingerprint(before):null;
  const activeBons=(before.registerData?.driverBons||[]).filter(row=>!['COMPLETED','CANCELLED'].includes(row.status));
@@ -128,6 +131,8 @@ async function collectAll(tx,query={}) {
 async function archive(tx,user,id,body) {
  fail(require('./jpt').STAFF.includes(user?.role),'Only internal staff can archive registers',403);
  const bill=await get(tx,id);fail(typeof body.archived==='boolean','Archive choice must be true or false');
+ if(bill.journeyId){const parent=await tx.shippingJourney.findUnique({where:{id:bill.journeyId}});fail(!parent.deletedAt&&!parent.archivedAt,'Pengiriman induk di arsip/Sampah hanya dapat dibaca.',409);}
+ fail(!require('./registerLifecycle').isTrashed(bill),'Pengiriman berada di Sampah. Gunakan Pulihkan dari Sampah.',409);
  fail(require('./jpt').integer(body.version,'Version')===bill.version,'BL changed; reload before saving',409);
  const data={...bill.registerData};
  delete data.archivedAt;delete data.archivedById;
@@ -137,6 +142,7 @@ async function archive(tx,user,id,body) {
 }
 async function estimate(tx,id,body) {
  const bill=await get(tx,id);
+ fail(!require('./registerLifecycle').isTrashed(bill),'Pengiriman berada di Sampah. Gunakan Pulihkan dari Sampah.',409);
  fail(!bill.archivedAt&&!bill.registerData?.archivedAt,'Archived register records are read-only',409);
  if(body.version!==undefined) fail(require('./jpt').integer(body.version,'Version')===bill.version,'BL changed; reload before estimating',409);
  fail(Array.isArray(body.tariffIds)&&body.tariffIds.every(id=>typeof id==='string')&&body.tariffIds.length<=100,'Select valid tariffs');

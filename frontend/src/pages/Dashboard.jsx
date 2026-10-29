@@ -17,7 +17,7 @@ export function RegisterOverview({summary={}}) {
 }
 export default function Dashboard() {
  const {t}=useBL();
- const resource=useResource('/bl-register?limit=5&page=1&archived=active&sort=createdAt&direction=desc');
+ const resource=useResource('/journeys?limit=5&page=1&archived=active');
  const summary=resource.data?.summary||{};
- return <div className="space-y-4"><Notice message={resource.error}/>{resource.loading?<p role="status">{t('Memuat register…')}</p>:<RegisterOverview summary={{...summary,recentRegisters:summary.recentRegisters||resource.data?.data||[]}}/>}</div>;
+ return <div className="space-y-5"><PageHeader title={t('Dasbor Pengiriman')} subtitle={t('Ringkasan perjalanan kapal dan seluruh B/L di dalamnya.')} action={<Link className="text-brand-500 text-sm" to="/bl-register">{t('Buka pengiriman →')}</Link>}/><Notice message={resource.error}/><div className="grid sm:grid-cols-3 gap-3">{[['totalJourneys','Pengiriman'],['totalBills','B/L'],['totalContainers','Kontainer']].map(([k,l])=><div key={k} className="card p-4"><p className="text-sm text-zinc-500">{t(l)}</p><strong className="text-2xl">{resource.loading?'…':summary[k]||0}</strong></div>)}</div><DataTable rows={resource.data?.data||[]} pagination={false} columns={[{key:'label',label:'Kapal & Voyage',primary:true,render:r=><Link className="font-semibold text-brand-500" to={'/shipments/'+r.id}>{r.label}</Link>},{key:'period',label:'Periode'},{key:'destination',label:'Tujuan'},{key:'billCount',label:'Jumlah B/L'},{key:'containerCount',label:'Kontainer'},{key:'documentCount',label:'Dokumen'}]} empty="Belum ada pengiriman."/></div>;
 }

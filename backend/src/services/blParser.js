@@ -2,6 +2,7 @@ const {Prisma}=require('@prisma/client');
 const dateOf=value=>{const m=String(value).match(/\b(\d{2})[-/](\d{2})[-/](\d{4})\b/);if(!m)return null;const d=new Date(m[3]+'-'+m[2]+'-'+m[1]+'T00:00:00Z');return Number.isFinite(d.getTime())&&d.getUTCDate()===+m[1]&&d.getUTCMonth()+1===+m[2]?d.toISOString():null;};
 const labels={billNumber:/^(?:NO\.?\s*)?B\s*\/\s*L\b/i,shipperName:/^(?:Pengirim|Shipper)\b/i,consigneeName:/^(?:Penerima|Consignee)\b/i,notifyPartyName:/^(?:Pihak yang Memberitahu|Notify Party)\b/i,vesselName:/^(?:Kapal Laut|Nama Kapal|Vessel)\b/i,voyageNumber:/^(?:No\.? Pelayaran|Voyage|Voy\.?\s*No\.?)\b/i,portOfLoading:/^(?:Pelabuhan Muat|Port of Loading)\b/i,portOfDischarge:/^(?:Pelabuhan Bongkar|Port of Discharge)\b/i,issueDate:/^Tempat dan tanggal diterbitkan/i,onBoardDate:/^Tanggal Dimuat di atas kapal/i};
 function parse(document){
+ if(require('./tantoParser').known(document))return require('./tantoParser').parse(document);
  const fields={};const evidence={};const warnings=[];const containers=new Map();let weights=[];
  const put=(key,value,page,source)=>{if(value==null||value==='')return;const text=typeof value==='string'?value.trim():value;if(fields[key]!==undefined&&fields[key]!==text){warnings.push('Nilai '+key+' berbeda antar halaman; periksa dokumen sumber.');return;}fields[key]=text;evidence[key]={page:page.number,method:page.method,source:String(source).slice(0,500),reviewRequired:page.method==='LOCAL_OCR'};};
  const full=document.pages.map(p=>p.text).join('\n');const spil=/SALAM\s+PACIFIC\s+INDONESIA\s+LINES|\bSPIL\b/i.test(full);
@@ -60,6 +61,6 @@ function parse(document){
  if(!spil)warnings.push('Format belum dikenali sebagai SPIL. Periksa hasil pembacaan dan lengkapi kolom secara manual.');
  for(const key of ['billNumber','vesselName','voyageNumber','portOfLoading','portOfDischarge'])if(!fields[key])warnings.push('Kolom '+key+' belum terbaca. Lengkapi secara manual.');
  warnings.push('Tanggal penerbitan dan tanggal muat di kapal tidak digunakan otomatis sebagai tanggal keberangkatan atau tiba.');
- return {parser:spil?'SPIL_V1':'GENERIC_REVIEW',fields,evidence,warnings:[...new Set(warnings)],pages:document.pages.map(p=>({number:p.number,method:p.method,confidence:p.confidence??null})),text:full.slice(0,150000)};
+ return {parser:spil?'SPIL_V1':'GENERIC_REVIEW',documentType:spil||/BILL\s+OF\s+LADING|KONOSEMEN/i.test(full)?'BILL_OF_LADING':/DELIVERY\s+ORDER/i.test(full)?'DELIVERY_ORDER':/SURAT\s+KUASA/i.test(full)?'POWER_OF_ATTORNEY':'UNKNOWN',referenceBillNumbers:fields.billNumber?[fields.billNumber]:[],fields,evidence,warnings:[...new Set(warnings)],pages:document.pages.map(p=>({number:p.number,method:p.method,confidence:p.confidence??null})),text:full.slice(0,150000)};
 }
 module.exports={parse,dateOf};

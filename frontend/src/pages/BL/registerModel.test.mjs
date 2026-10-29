@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const model = await import('./registerModel.mjs').catch(() => ({}));
+test('trash remains read-only and distinct from an ordinary archive',()=>{
+ const row={registerData:{trash:{deletedAt:'2026-10-30'}}};assert.equal(model.isRegisterDeleted(row),true);assert.equal(model.isRegisterArchived(row),true);
+ assert.equal(model.isRegisterDeleted({archived:true}),false);assert.equal(model.isRegisterDeleted({deleted:true}),true);
+});
 test('historical BL files cannot override an explicit missing-current-document flag after deletion', () => {
  const row={documentAvailability:{billOfLading:false},files:[{category:'FINAL',filename:'older.pdf'}]};
  assert.equal(model.registerDocumentAvailability(row).billOfLading,false);

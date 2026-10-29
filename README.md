@@ -6,6 +6,8 @@ Sistem manajemen logistik SCMU berbasis React, Express, Prisma, dan PostgreSQL.
 
 Panduan kapal/voyage, unggah B/L dengan pembacaan lokal, dan rekap Packing List internal: [panduan operasional](docs/VESSELS-BL-IMPORT.md).
 
+Unggah banyak B/L/DO/surat kuasa sekaligus, pembaca Tanto, dan rekap Packing List per kapal/voyage: [panduan unggah massal](docs/TANTO-BATCH-RECAP.md).
+
 PL mitra yang diunggah dapat langsung dipratinjau dan dicetak sebagai ringkasan PDF atau Excel, sebelum B/L tersedia. Lihat [alur ringkasan PL mitra](docs/PACKING-IMPORT.md#ringkasan-langsung-setelah-unggah-pl-mitra). Pemeriksaan kesesuaian PL dan B/L dilakukan manual oleh admin; pencetakan PL tidak memerlukan tahap pencocokan.
 
 Antarmuka mendukung **Bahasa Indonesia dan English**. Gunakan pilihan **Bahasa / Language**
@@ -149,6 +151,12 @@ Frontend runs on `http://localhost:5173`, backend on `http://localhost:5000`.
 Panduan [impor Excel mitra dan pembuatan Kepala Packing List SCMU](docs/PACKING-IMPORT.md) mencakup alur pratinjau, pemeriksaan manual, penggabungan B/L, serta unduh Excel/cetak PDF.
 
 Panduan [penghapusan lampiran pengiriman](docs/SHIPMENT-DOCUMENT-DELETION.md) menjelaskan penghapusan file salah unggah, dokumen bersama, riwayat, dan migrasi antrean pembersihan berkas.
+
+Panduan [Hapus pengiriman dan Sampah](docs/SHIPMENT-TRASH.md) menjelaskan penghapusan catatan salah input, pemeriksaan transaksi/bonrate terkait, dan pemulihan pengiriman beserta dokumennya.
+
+Panduan [Pengiriman per perjalanan kapal](docs/SHIPPING-JOURNEYS.md) menjelaskan satu pengiriman dengan banyak B/L, daftar dokumen gabungan, rekap PDF/Excel, bonrate lintas B/L, biaya bersama, serta migrasi data lama. Daftar Pengiriman dan Packing List sekarang berpusat pada kapal/voyage/periode/tujuan; rincian B/L tetap tersedia di dalamnya.
+
+**Tambah pengiriman** dapat dimulai dari **Unggah B/L** (satu atau banyak file, isian otomatis, pemeriksaan pengelompokan dan periode) atau **Isi manual**. Pengiriman baru dan file aslinya disimpan bersama setelah admin mengonfirmasi; perjalanan yang sudah tersedia dapat digunakan kembali tanpa membuat duplikat.
 
 Semua tabel menu menampilkan **No.** sesuai urutan hasil filter dan halaman (halaman kedua dengan 10 baris dimulai dari 11). Pengiriman dan Packing List menampilkan daftar ringkas dengan kolom **Tindakan** langsung pada tiap baris, tanpa checkbox pada daftar utama. Seluruh rincian dibaca melalui nomor B/L, termasuk referensi internal, invoice, muatan, aturan dokumen dan waktu pencatatan. Ekspor tetap memuat seluruh kolom sesuai cakupannya; ekspor gabungan Packing List memakai dialog pemilihan tersendiri. Menu lain tetap memakai toolbar tindakan dengan pilihan baris. Daftar utama berubah menjadi kartu di ponsel. Pengujian: `cd frontend`, lalu `npm run test:tables` atau `npm run test:ux` dengan demo lokal aktif.
 
